@@ -1,0 +1,302 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  AGENTE
+}
+
+enum StatusConversa {
+  ABERTO
+  EM_ANDAMENTO
+  AGUARDANDO
+  RESOLVIDO
+  FECHADO
+}
+
+enum Prioridade {
+  BAIXA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum StatusAgendamento {
+  AGENDADO
+  CONFIRMADO
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO
+  REAGENDADO
+}
+
+enum TipoMensagem {
+  TEXTO
+  IMAGEM
+  AUDIO
+  VIDEO
+  DOCUMENTO
+  STICKER
+  LOCALIZACAO
+  CONTATO
+}
+
+enum TipoArquivo {
+  IMAGEM
+  DOCUMENTO
+  AUDIO
+  VIDEO
+}
+
+model Empresa {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  nome            String
+  slug            String   @unique
+  descricao       String?
+  email           String?
+  telefone        String?
+  endereco        String?
+  logo            String?
+  corPrimaria     String?  @default("#3B82F6")
+  corSecundaria   String?  @default("#1E40AF")
+  plano           String   @default("BASICO") // BASICO, PREMIUM, ENTERPRISE
+  limiteUsuarios  Int      @default(5)
+  limiteConversas Int      @default(100)
+  ativo           Boolean  @default(true)
+  configuracao    Json? // Configurações específicas da empresa
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relacionamentos
+  usuarios       Usuario[]
+  clientes       Cliente[]
+  conversas      Conversa[]
+  agendamentos   Agendamento[]
+  configuracaoIA ConfiguracaoIA?
+  LogAtividade   LogAtividade[]
+  Metricas       Metricas[]
+
+  @@map("empresas")
+}
+
+model Usuario {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  nome        String
+  email       String    @unique
+  senha       String
+  telefone    String?
+  avatar      String?
+  role        Role
+  ativo       Boolean   @default(true)
+  ultimoLogin DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relacionamentos
+  empresaId    String?        @db.ObjectId
+  empresa      Empresa?       @relation(fields: [empresaId], references: [id])
+  conversas    Conversa[]
+  agendamentos Agendamento[]
+  mensagens    Mensagem[]
+  LogAtividade LogAtividade[]
+
+  @@map("usuarios")
+}
+
+model Cliente {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  nome        String
+  email       String?
+  telefone    String?
+  avatar      String?
+  documento   String? // CPF, CNPJ, etc
+  endereco    String?
+  observacoes String?
+  tags        String[] // Tags para categorização
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relacionamentos
+  empresaId    String        @db.ObjectId
+  empresa      Empresa       @relation(fields: [empresaId], references: [id])
+  conversas    Conversa[]
+  agendamentos Agendamento[]
+
+  @@map("clientes")
+}
+
+model Conversa {
+  id                 String         @id @default(auto()) @map("_id") @db.ObjectId
+  titulo             String?
+  status             StatusConversa @default(ABERTO)
+  prioridade         Prioridade     @default(MEDIA)
+  canal              String // whatsapp, telegram, webchat, email
+  identificadorCanal String? // ID do chat no canal específico
+  sla                Int? // SLA em minutos
+  tempoResposta      Int? // Tempo médio de resposta em minutos
+  satisfacao         Int? // Score de satisfação (1-5)
+  observacoes        String?
+  tags               String[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  fechadaEm          DateTime?
+
+  // Relacionamentos
+  empresaId String     @db.ObjectId
+  empresa   Empresa    @relation(fields: [empresaId], references: [id])
+  clienteId String     @db.ObjectId
+  cliente   Cliente    @relation(fields: [clienteId], references: [id])
+  agenteId  String?    @db.ObjectId
+  agente    Usuario?   @relation(fields: [agenteId], references: [id])
+  mensagens Mensagem[]
+  arquivos  Arquivo[]
+
+  @@map("conversas")
+}
+
+model Mensagem {
+  id        String       @id @default(auto()) @map("_id") @db.ObjectId
+  conteudo  String?
+  tipo      TipoMensagem @default(TEXTO)
+  remetente String // "cliente", "agente", "sistema", "ia"
+  isIA      Boolean      @default(false)
+  isLida    Boolean      @default(false)
+  lidaEm    DateTime?
+  metadata  Json? // Dados específicos do tipo de mensagem
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  // Relacionamentos
+  conversaId String    @db.ObjectId
+  conversa   Conversa  @relation(fields: [conversaId], references: [id])
+  agenteId   String?   @db.ObjectId
+  agente     Usuario?  @relation(fields: [agenteId], references: [id])
+  arquivos   Arquivo[]
+
+  @@map("mensagens")
+}
+
+model Agendamento {
+  id          String            @id @default(auto()) @map("_id") @db.ObjectId
+  titulo      String
+  descricao   String?
+  dataHora    DateTime
+  duracao     Int               @default(60) // Duração em minutos
+  status      StatusAgendamento @default(AGENDADO)
+  tipo        String? // "consulta", "reuniao", "suporte"
+  localizacao String? // Presencial ou online
+  link        String? // Link para reunião online
+  observacoes String?
+  lembrete    Boolean           @default(true)
+  notificado  Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  // Relacionamentos
+  empresaId String  @db.ObjectId
+  empresa   Empresa @relation(fields: [empresaId], references: [id])
+  clienteId String  @db.ObjectId
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+  agenteId  String  @db.ObjectId
+  agente    Usuario @relation(fields: [agenteId], references: [id])
+
+  @@map("agendamentos")
+}
+
+model Arquivo {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  nome         String
+  nomeOriginal String
+  url          String
+  tipo         TipoArquivo
+  tamanho      Int // Tamanho em bytes
+  mimeType     String
+  thumbnail    String? // URL do thumbnail para imagens/vídeos
+  metadata     Json? // Metadados específicos do arquivo
+  createdAt    DateTime    @default(now())
+
+  // Relacionamentos
+  conversaId String?   @db.ObjectId
+  conversa   Conversa? @relation(fields: [conversaId], references: [id])
+  mensagemId String?   @db.ObjectId
+  mensagem   Mensagem? @relation(fields: [mensagemId], references: [id])
+
+  @@map("arquivos")
+}
+
+model ConfiguracaoIA {
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  promptBase           String
+  modelo               String   @default("gpt-4")
+  temperatura          Float    @default(0.7)
+  maxTokens            Int      @default(1000)
+  modoAutomatico       Boolean  @default(false)
+  horarioFuncionamento Json? // Horários de funcionamento da IA
+  idioma               String   @default("pt-BR")
+  personalidade        String? // Personalidade da IA
+  faq                  String[] // Perguntas frequentes
+  palavrasChave        String[] // Palavras-chave para detecção de intenção
+  ativo                Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Relacionamentos
+  empresaId String  @unique @db.ObjectId
+  empresa   Empresa @relation(fields: [empresaId], references: [id])
+
+  @@map("configuracao_ia")
+}
+
+model LogAtividade {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  acao      String // "login", "logout", "criar_conversa", "enviar_mensagem", etc
+  detalhes  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  // Relacionamentos
+  usuarioId String?  @db.ObjectId
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+  empresaId String?  @db.ObjectId
+  empresa   Empresa? @relation(fields: [empresaId], references: [id])
+
+  @@map("logs_atividade")
+}
+
+model Metricas {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  data      DateTime
+  empresaId String   @db.ObjectId
+  empresa   Empresa  @relation(fields: [empresaId], references: [id])
+
+  // Métricas de atendimento
+  totalConversas     Int   @default(0)
+  conversasAbertas   Int   @default(0)
+  conversasFechadas  Int   @default(0)
+  tempoMedioResposta Int   @default(0) // em minutos
+  satisfacaoMedia    Float @default(0)
+
+  // Métricas de IA
+  mensagensIA     Int   @default(0)
+  taxaResolucaoIA Float @default(0)
+
+  // Métricas de agentes
+  agentesAtivos      Int   @default(0)
+  cargaTrabalhoMedia Float @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("metricas")
+}
