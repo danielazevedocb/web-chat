@@ -37,7 +37,7 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Token renovado com sucesso' })
   @ApiResponse({ status: 401, description: 'Refresh token inválido' })
   async refreshToken(@Body('refreshToken') refreshToken: string) {
-    return this.authService.refreshToken(refreshToken);
+    throw new Error('Refresh token não implementado');
   }
 
   @Post('logout')
@@ -45,6 +45,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Efetuar logout do usuário' })
   @ApiResponse({ status: 200, description: 'Logout realizado com sucesso' })
   async logout(@Request() req) {
-    return this.authService.logout(req.user.sub);
+    // Atualizar status offline
+    await this.authService.logout(req.user.id);
+    return { message: 'Logout realizado com sucesso' };
   }
 }

@@ -1,27 +1,28 @@
-import { authOptions } from '@/lib/auth';
-import { getServerSession } from 'next-auth';
-import { redirect } from 'next/navigation';
+'use client';
 
-export default async function HomePage() {
-  const session = await getServerSession(authOptions);
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
-  if (!session) {
-    redirect('/login');
-  }
+export default function HomePage() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
 
-  // Redirecionar baseado no role
-  if (session.user?.role) {
-    switch (session.user.role) {
-      case 'SUPER_ADMIN':
-        redirect('/admin/dashboard');
-      case 'ADMIN':
-        redirect('/admin/dashboard');
-      case 'AGENTE':
-        redirect('/agente/atendimento');
-      default:
-        redirect('/login');
+  useEffect(() => {
+    if (!isLoading) {
+      if (isAuthenticated) {
+        // Usuário autenticado, redirecionar para a página de chat
+        router.push('/');
+      } else {
+        // Usuário não autenticado, redirecionar para login
+        router.push('/login');
+      }
     }
-  }
+  }, [isAuthenticated, isLoading, router]);
 
-  redirect('/login');
+  return (
+    <div className="flex items-center justify-center h-screen">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
 }

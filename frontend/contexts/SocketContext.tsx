@@ -1,11 +1,12 @@
 'use client';
 
 import {
-  createContext,
-  ReactNode,
-  useContext,
-  useEffect,
-  useState,
+    createContext,
+    ReactNode,
+    useCallback,
+    useContext,
+    useEffect,
+    useState,
 } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -13,23 +14,34 @@ import { useAuth } from './AuthContext';
 interface SocketContextType {
   socket: Socket | null;
   isConnected: boolean;
-  joinConversa: (conversaId: string) => void;
-  leaveConversa: (conversaId: string) => void;
-  sendMessage: (data: any) => void;
-  startTyping: (conversaId: string) => void;
-  stopTyping: (conversaId: string) => void;
-  markMessagesAsRead: (conversaId: string, agenteId: string) => void;
-  updateConversaStatus: (
-    conversaId: string,
-    status: string,
-    agenteId?: string,
-  ) => void;
-  updateConversaPrioridade: (conversaId: string, prioridade: string) => void;
-  generateIAResponse: (
-    conversaId: string,
-    mensagem: string,
-    empresaId: string,
-  ) => void;
+  joinChat: (chatId: string) => void;
+  leaveChat: (chatId: string) => void;
+  sendMessage: (data: {
+    chatId: string;
+    content?: string;
+    type: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'FILE' | 'EMOJI';
+    fileUrl?: string;
+    fileSize?: number;
+    mimeType?: string;
+    replyToId?: string;
+  }) => void;
+  startTyping: (chatId: string) => void;
+  stopTyping: (chatId: string) => void;
+  markMessageAsRead: (messageId: string) => void;
+  onMessage: (callback: (message: any) => void) => void;
+  onTyping: (callback: (data: { userId: string; chatId: string }) => void) => void;
+  onStopTyping: (callback: (data: { userId: string; chatId: string }) => void) => void;
+  onUserOnline: (callback: (data: { userId: string }) => void) => void;
+  onUserOffline: (callback: (data: { userId: string }) => void) => void;
+  onMessageRead: (callback: (data: { messageId: string; userId: string }) => void) => void;
+  onNewMessage: (callback: (data: { chatId: string; message: any }) => void) => void;
+  offMessage: () => void;
+  offTyping: () => void;
+  offStopTyping: () => void;
+  offUserOnline: () => void;
+  offUserOffline: () => void;
+  offMessageRead: () => void;
+  offNewMessage: () => void;
 }
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
@@ -42,27 +54,31 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (token && user) {
       const newSocket = io(
-        process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001',
+        `${process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001'}/chat`,
         {
           auth: {
+            userId: user.id,
             token,
           },
-          transports: ['websocket'],
+          transports: ['websocket', 'polling'],
+          reconnection: true,
+          reconnectionDelay: 1000,
+          reconnectionAttempts: 5,
         },
       );
 
       newSocket.on('connect', () => {
-        console.log('Conectado ao servidor Socket.io');
+        console.log('✅ Conectado ao servidor Socket.io');
         setIsConnected(true);
       });
 
       newSocket.on('disconnect', () => {
-        console.log('Desconectado do servidor Socket.io');
+        console.log('❌ Desconectado do servidor Socket.io');
         setIsConnected(false);
       });
 
       newSocket.on('connect_error', (error) => {
-        console.error('Erro de conexão:', error);
+        console.error('❌ Erro de conexão:', error);
         setIsConnected(false);
       });
 
@@ -71,85 +87,171 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       return () => {
         newSocket.close();
       };
+    } else {
+      if (socket) {
+        socket.close();
+        setSocket(null);
+        setIsConnected(false);
+      }
     }
   }, [token, user]);
 
-  const joinConversa = (conversaId: string) => {
+  const joinChat = useCallback((chatId: string) => {
     if (socket) {
-      socket.emit('join_conversa', { conversaId });
+      socket.emit('join-chat', { chatId });
     }
-  };
+  }, [socket]);
 
-  const leaveConversa = (conversaId: string) => {
+  const leaveChat = useCallback((chatId: string) => {
     if (socket) {
-      socket.emit('leave_conversa', { conversaId });
+      socket.emit('leave-chat', { chatId });
     }
-  };
+  }, [socket]);
 
-  const sendMessage = (data: any) => {
-    if (socket) {
-      socket.emit('send_message', data);
+  const sendMessage = useCallback((data: {
+    chatId: string;
+    content?: string;
+    type: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'FILE' | 'EMOJI';
+    fileUrl?: string;
+    fileSize?: number;
+    mimeType?: string;
+    replyToId?: string;
+  }) => {
+    if (socket && user) {
+      socket.emit('send-message', {
+        ...data,
+        userId: user.id,
+      });
     }
-  };
+  }, [socket, user]);
 
-  const startTyping = (conversaId: string) => {
-    if (socket) {
-      socket.emit('typing_start', { conversaId, usuarioId: user?.id });
+  const startTyping = useCallback((chatId: string) => {
+    if (socket && user) {
+      socket.emit('typing', { chatId, userId: user.id });
     }
-  };
+  }, [socket, user]);
 
-  const stopTyping = (conversaId: string) => {
-    if (socket) {
-      socket.emit('typing_stop', { conversaId, usuarioId: user?.id });
+  const stopTyping = useCallback((chatId: string) => {
+    if (socket && user) {
+      socket.emit('stop-typing', { chatId, userId: user.id });
     }
-  };
+  }, [socket, user]);
 
-  const markMessagesAsRead = (conversaId: string, agenteId: string) => {
-    if (socket) {
-      socket.emit('mark_read', { conversaId, agenteId });
+  const markMessageAsRead = useCallback((messageId: string) => {
+    if (socket && user) {
+      socket.emit('message-read', { messageId, userId: user.id });
     }
-  };
+  }, [socket, user]);
 
-  const updateConversaStatus = (
-    conversaId: string,
-    status: string,
-    agenteId?: string,
-  ) => {
+  const onMessage = useCallback((callback: (message: any) => void) => {
     if (socket) {
-      socket.emit('update_conversa_status', { conversaId, status, agenteId });
+      socket.on('message', callback);
     }
-  };
+  }, [socket]);
 
-  const updateConversaPrioridade = (conversaId: string, prioridade: string) => {
+  const onTyping = useCallback((callback: (data: { userId: string; chatId: string }) => void) => {
     if (socket) {
-      socket.emit('update_conversa_prioridade', { conversaId, prioridade });
+      socket.on('typing', callback);
     }
-  };
+  }, [socket]);
 
-  const generateIAResponse = (
-    conversaId: string,
-    mensagem: string,
-    empresaId: string,
-  ) => {
+  const onStopTyping = useCallback((callback: (data: { userId: string; chatId: string }) => void) => {
     if (socket) {
-      socket.emit('generate_ia_response', { conversaId, mensagem, empresaId });
+      socket.on('stop-typing', callback);
     }
-  };
+  }, [socket]);
+
+  const onUserOnline = useCallback((callback: (data: { userId: string }) => void) => {
+    if (socket) {
+      socket.on('user-online', callback);
+    }
+  }, [socket]);
+
+  const onUserOffline = useCallback((callback: (data: { userId: string }) => void) => {
+    if (socket) {
+      socket.on('user-offline', callback);
+    }
+  }, [socket]);
+
+  const onMessageRead = useCallback((callback: (data: { messageId: string; userId: string }) => void) => {
+    if (socket) {
+      socket.on('message-read', callback);
+    }
+  }, [socket]);
+
+  const onNewMessage = useCallback((callback: (data: { chatId: string; message: any }) => void) => {
+    if (socket) {
+      socket.on('new-message', callback);
+    }
+  }, [socket]);
+
+  const offMessage = useCallback(() => {
+    if (socket) {
+      socket.off('message');
+    }
+  }, [socket]);
+
+  const offTyping = useCallback(() => {
+    if (socket) {
+      socket.off('typing');
+    }
+  }, [socket]);
+
+  const offStopTyping = useCallback(() => {
+    if (socket) {
+      socket.off('stop-typing');
+    }
+  }, [socket]);
+
+  const offUserOnline = useCallback(() => {
+    if (socket) {
+      socket.off('user-online');
+    }
+  }, [socket]);
+
+  const offUserOffline = useCallback(() => {
+    if (socket) {
+      socket.off('user-offline');
+    }
+  }, [socket]);
+
+  const offMessageRead = useCallback(() => {
+    if (socket) {
+      socket.off('message-read');
+    }
+  }, [socket]);
+
+  const offNewMessage = useCallback(() => {
+    if (socket) {
+      socket.off('new-message');
+    }
+  }, [socket]);
 
   return (
     <SocketContext.Provider
       value={{
         socket,
         isConnected,
-        joinConversa,
-        leaveConversa,
+        joinChat,
+        leaveChat,
         sendMessage,
         startTyping,
         stopTyping,
-        markMessagesAsRead,
-        updateConversaStatus,
-        updateConversaPrioridade,
-        generateIAResponse,
+        markMessageAsRead,
+        onMessage,
+        onTyping,
+        onStopTyping,
+        onUserOnline,
+        onUserOffline,
+        onMessageRead,
+        onNewMessage,
+        offMessage,
+        offTyping,
+        offStopTyping,
+        offUserOnline,
+        offUserOffline,
+        offMessageRead,
+        offNewMessage,
       }}
     >
       {children}

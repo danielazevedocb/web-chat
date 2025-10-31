@@ -13,17 +13,16 @@ import toast from 'react-hot-toast';
 
 interface User {
   id: string;
-  nome: string;
+  name: string;
   email: string;
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'AGENTE';
-  empresaId?: string;
   avatar?: string;
+  bio?: string;
 }
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (email: string, senha: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
   isAuthenticated: boolean;
@@ -47,8 +46,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const decoded = jwtDecode<{
           sub: string;
           email: string;
-          role: string;
-          empresaId?: string;
         }>(storedToken);
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
@@ -63,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, senha: string) => {
+  const login = async (email: string, password: string) => {
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/auth/login`,
@@ -72,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ email, senha }),
+          body: JSON.stringify({ email, senha: password }),
         },
       );
 
@@ -83,27 +80,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json();
 
-      setUser(data.usuario);
+      setUser(data.user || data.usuario);
       setToken(data.accessToken);
 
       localStorage.setItem('token', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
-      localStorage.setItem('user', JSON.stringify(data.usuario));
+      if (data.refreshToken) {
+        localStorage.setItem('refreshToken', data.refreshToken);
+      }
+      localStorage.setItem('user', JSON.stringify(data.user || data.usuario));
 
       toast.success('Login realizado com sucesso!');
 
-      // Redirecionar baseado no role
-      switch (data.usuario.role) {
-        case 'SUPER_ADMIN':
-        case 'ADMIN':
-          router.push('/admin/dashboard');
-          break;
-        case 'AGENTE':
-          router.push('/agente/atendimento');
-          break;
-        default:
-          router.push('/login');
-      }
+      // Redirecionar para home do chat
+      router.push('/');
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : 'Erro ao fazer login',

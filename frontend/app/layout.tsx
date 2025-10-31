@@ -6,10 +6,10 @@ import { Providers } from './providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Sistema de Atendimento Multi-Empresa',
-  description: 'Sistema completo de atendimento ao cliente com IA',
-  keywords: ['atendimento', 'chat', 'IA', 'multi-empresa', 'tickets'],
-  authors: [{ name: 'Equipe de Desenvolvimento' }],
+  title: 'QRP Talk - Chat Online em Tempo Real',
+  description: 'Mantenha contato com seus amigos e familiares em tempo real',
+  keywords: ['chat', 'mensagens', 'tempo real', 'comunicação'],
+  authors: [{ name: 'QRP Talk' }],
   viewport: 'width=device-width, initial-scale=1',
 };
 

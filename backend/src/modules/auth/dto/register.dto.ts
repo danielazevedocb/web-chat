@@ -1,33 +1,17 @@
 import {
   IsEmail,
-  IsEnum,
-  IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
-import { Role } from '../../../shared/types';
 
 export class RegisterDto {
-  @IsString()
-  @MinLength(2)
+  @IsString({ message: 'Nome é obrigatório' })
   nome: string;
 
-  @IsEmail()
+  @IsEmail({}, { message: 'Email deve ter um formato válido' })
   email: string;
 
-  @IsString()
-  @MinLength(6)
+  @IsString({ message: 'Senha é obrigatória' })
+  @MinLength(6, { message: 'Senha deve ter pelo menos 6 caracteres' })
   senha: string;
-
-  @IsOptional()
-  @IsString()
-  telefone?: string;
-
-  @IsOptional()
-  @IsEnum(Role)
-  role?: Role;
-
-  @IsOptional()
-  @IsString()
-  empresaId?: string;
 }

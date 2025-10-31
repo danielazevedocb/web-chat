@@ -12,9 +12,12 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { EmpresasModule } from './modules/empresas/empresas.module';
 import { IAModule } from './modules/ia/ia.module';
 import { IntegracoesModule } from './modules/integracoes/integracoes.module';
+import { MessagesModule } from './modules/messages/messages.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
+import { UploadModule } from './modules/upload/upload.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -49,12 +52,15 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module';
     UsuariosModule,
     ClientesModule,
     ChatModule,
+    MessagesModule,
     TicketsModule,
     AgendamentosModule,
     IAModule,
     ArquivosModule,
+    UploadModule,
     IntegracoesModule,
     DashboardModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

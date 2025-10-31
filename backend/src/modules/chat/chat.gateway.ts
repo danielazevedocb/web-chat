@@ -1,15 +1,18 @@
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import {
-    ConnectedSocket,
-    MessageBody,
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    SubscribeMessage,
-    WebSocketGateway,
-    WebSocketServer,
+  ConnectedSocket,
+  MessageBody,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { ChatService } from './chat.service';
+import { CreateMessageDto } from '../messages/dto/create-message.dto';
+import { MessagesService } from '../messages/messages.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 @WebSocketGateway({
   cors: {
@@ -22,57 +25,127 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
+  private connectedUsers = new Map<string, string>(); // socketId -> userId
+
   constructor(
-    private chatService: ChatService,
+    private messagesService: MessagesService,
     private configService: ConfigService,
+    private prisma: PrismaService,
+    private jwtService: JwtService,
   ) {}
 
-  handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
     console.log(`Cliente conectado: ${client.id}`);
+    
+    try {
+      // Tentar obter userId do auth ou do token
+      let userId = client.handshake.auth?.userId;
+      
+      // Se não tiver userId, tentar decodificar o token
+      if (!userId && client.handshake.auth?.token) {
+        try {
+          const payload = this.jwtService.verify(client.handshake.auth.token, {
+            secret: this.configService.get('JWT_SECRET'),
+          });
+          userId = payload.sub;
+        } catch (error) {
+          console.error('Token inválido:', error);
+          client.disconnect();
+          return;
+        }
+      }
+
+      if (userId) {
+        this.connectedUsers.set(client.id, userId);
+        
+        // Atualizar status online no banco
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { 
+            isOnline: true,
+            lastSeen: new Date(),
+          },
+        });
+
+        // Notificar que o usuário está online
+        client.broadcast.emit('user-online', { userId });
+      } else {
+        console.warn('Usuário não autenticado, desconectando...');
+        client.disconnect();
+      }
+    } catch (error) {
+      console.error('Erro ao processar conexão:', error);
+      client.disconnect();
+    }
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
     console.log(`Cliente desconectado: ${client.id}`);
+    const userId = this.connectedUsers.get(client.id);
+    
+    if (userId) {
+      this.connectedUsers.delete(client.id);
+      
+      // Verificar se o usuário ainda tem outras conexões ativas
+      const hasOtherConnections = Array.from(this.connectedUsers.values()).includes(userId);
+      
+      if (!hasOtherConnections) {
+        // Atualizar status offline no banco apenas se não houver outras conexões
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { 
+            isOnline: false,
+            lastSeen: new Date(),
+          },
+        });
+      }
+
+      // Notificar que o usuário está offline
+      client.broadcast.emit('user-offline', { userId });
+    }
   }
 
-  @SubscribeMessage('join_conversa')
-  handleJoinConversa(
+  @SubscribeMessage('join-chat')
+  handleJoinChat(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversaId: string },
+    @MessageBody() data: { chatId: string },
   ) {
-    client.join(`conversa_${data.conversaId}`);
-    console.log(`Cliente ${client.id} entrou na conversa ${data.conversaId}`);
+    client.join(`chat_${data.chatId}`);
+    console.log(`Cliente ${client.id} entrou no chat ${data.chatId}`);
   }
 
-  @SubscribeMessage('leave_conversa')
-  handleLeaveConversa(
+  @SubscribeMessage('leave-chat')
+  handleLeaveChat(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversaId: string },
+    @MessageBody() data: { chatId: string },
   ) {
-    client.leave(`conversa_${data.conversaId}`);
-    console.log(`Cliente ${client.id} saiu da conversa ${data.conversaId}`);
+    client.leave(`chat_${data.chatId}`);
+    console.log(`Cliente ${client.id} saiu do chat ${data.chatId}`);
   }
 
-  @SubscribeMessage('send_message')
+  @SubscribeMessage('send-message')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: any,
+    @MessageBody() data: CreateMessageDto & { userId: string },
   ) {
     try {
-      const mensagem = await this.chatService.createMensagem(data);
+      const message = await this.messagesService.create(data.userId, {
+        chatId: data.chatId,
+        content: data.content,
+        type: data.type,
+        fileUrl: data.fileUrl,
+        fileSize: data.fileSize,
+        mimeType: data.mimeType,
+        replyToId: data.replyToId,
+      });
 
-      // Enviar mensagem para todos os clientes na conversa
-      this.server
-        .to(`conversa_${data.conversaId}`)
-        .emit('message_received', mensagem);
+      // Enviar mensagem para todos os clientes no chat
+      this.server.to(`chat_${data.chatId}`).emit('message', message);
 
-      // Confirmar para o remetente
-      client.emit('message_sent', mensagem);
-
-      // Notificar sobre nova mensagem (para notificações)
-      this.server.emit('new_message_notification', {
-        conversaId: data.conversaId,
-        mensagem: mensagem,
+      // Notificar sobre nova mensagem (para atualizar lista de chats)
+      this.server.emit('new-message', {
+        chatId: data.chatId,
+        message,
       });
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
@@ -80,131 +153,54 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  @SubscribeMessage('typing_start')
-  handleTypingStart(
+  @SubscribeMessage('typing')
+  handleTyping(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversaId: string; usuarioId: string },
+    @MessageBody() data: { chatId: string; userId: string },
   ) {
-    client.to(`conversa_${data.conversaId}`).emit('user_typing', {
-      usuarioId: data.usuarioId,
-      conversaId: data.conversaId,
+    client.to(`chat_${data.chatId}`).emit('typing', {
+      userId: data.userId,
+      chatId: data.chatId,
     });
   }
 
-  @SubscribeMessage('typing_stop')
-  handleTypingStop(
+  @SubscribeMessage('stop-typing')
+  handleStopTyping(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversaId: string; usuarioId: string },
+    @MessageBody() data: { chatId: string; userId: string },
   ) {
-    client.to(`conversa_${data.conversaId}`).emit('user_stopped_typing', {
-      usuarioId: data.usuarioId,
-      conversaId: data.conversaId,
+    client.to(`chat_${data.chatId}`).emit('stop-typing', {
+      userId: data.userId,
+      chatId: data.chatId,
     });
   }
 
-  @SubscribeMessage('mark_read')
-  async handleMarkRead(
+  @SubscribeMessage('message-read')
+  async handleMessageRead(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversaId: string; agenteId: string },
+    @MessageBody() data: { messageId: string; userId: string },
   ) {
     try {
-      await this.chatService.markMessagesAsRead(data.conversaId, data.agenteId);
+      await this.messagesService.markAsRead(data.messageId, data.userId);
 
-      // Notificar outros clientes que as mensagens foram lidas
-      client.to(`conversa_${data.conversaId}`).emit('messages_read', {
-        conversaId: data.conversaId,
-        agenteId: data.agenteId,
+      // Notificar outros clientes que a mensagem foi lida
+      client.broadcast.emit('message-read', {
+        messageId: data.messageId,
+        userId: data.userId,
       });
     } catch (error) {
-      console.error('Erro ao marcar mensagens como lidas:', error);
-      client.emit('error', { message: 'Erro ao marcar mensagens como lidas' });
+      console.error('Erro ao marcar mensagem como lida:', error);
+      client.emit('error', { message: 'Erro ao marcar mensagem como lida' });
     }
   }
 
-  @SubscribeMessage('update_conversa_status')
-  async handleUpdateConversaStatus(
-    @ConnectedSocket() client: Socket,
-    @MessageBody()
-    data: { conversaId: string; status: string; agenteId?: string },
-  ) {
-    try {
-      const conversa = await this.chatService.updateConversaStatus(
-        data.conversaId,
-        data.status,
-        data.agenteId,
-      );
-
-      // Notificar todos os clientes sobre a mudança de status
-      this.server.emit('conversa_status_updated', {
-        conversaId: data.conversaId,
-        status: data.status,
-        conversa: conversa,
-      });
-    } catch (error) {
-      console.error('Erro ao atualizar status da conversa:', error);
-      client.emit('error', { message: 'Erro ao atualizar status da conversa' });
-    }
+  // Método para notificar sobre mudanças nos chats
+  notifyChatUpdate(chat: any) {
+    this.server.emit('chat-updated', chat);
   }
 
-  @SubscribeMessage('update_conversa_prioridade')
-  async handleUpdateConversaPrioridade(
-    @ConnectedSocket() client: Socket,
-    @MessageBody()
-    data: { conversaId: string; prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' },
-  ) {
-    try {
-      const conversa = await this.chatService.updateConversaPrioridade(
-        data.conversaId,
-        data.prioridade,
-      );
-
-      // Notificar todos os clientes sobre a mudança de prioridade
-      this.server.emit('conversa_prioridade_updated', {
-        conversaId: data.conversaId,
-        prioridade: data.prioridade,
-        conversa: conversa,
-      });
-    } catch (error) {
-      console.error('Erro ao atualizar prioridade da conversa:', error);
-      client.emit('error', {
-        message: 'Erro ao atualizar prioridade da conversa',
-      });
-    }
-  }
-
-  @SubscribeMessage('generate_ia_response')
-  async handleGenerateIAResponse(
-    @ConnectedSocket() client: Socket,
-    @MessageBody()
-    data: { conversaId: string; mensagem: string; empresaId: string },
-  ) {
-    try {
-      const mensagemIA = await this.chatService.generateIAResponse(
-        data.empresaId,
-        data.conversaId,
-        data.mensagem,
-      );
-
-      // Enviar resposta da IA para todos os clientes na conversa
-      this.server
-        .to(`conversa_${data.conversaId}`)
-        .emit('ia_response_received', mensagemIA);
-
-      // Confirmar para o remetente
-      client.emit('ia_response_generated', mensagemIA);
-    } catch (error) {
-      console.error('Erro ao gerar resposta da IA:', error);
-      client.emit('error', { message: 'Erro ao gerar resposta da IA' });
-    }
-  }
-
-  // Método para notificar sobre mudanças nas conversas
-  notifyConversaUpdate(conversa: any) {
-    this.server.emit('conversa_updated', conversa);
-  }
-
-  // Método para notificar sobre novas conversas
-  notifyNewConversa(conversa: any) {
-    this.server.emit('new_conversa', conversa);
+  // Método para notificar sobre novos chats
+  notifyNewChat(chat: any) {
+    this.server.emit('new-chat', chat);
   }
 }

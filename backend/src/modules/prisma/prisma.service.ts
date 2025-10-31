@@ -5,11 +5,11 @@ import { PrismaClient } from '@prisma/client';
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     await this.$connect();
-    console.log('📦 Conectado ao MongoDB Atlas');
+    console.log('📦 Conectado ao PostgreSQL');
   }
 
   async onModuleDestroy() {
     await this.$disconnect();
-    console.log('📦 Desconectado do MongoDB Atlas');
+    console.log('📦 Desconectado do PostgreSQL');
   }
 }

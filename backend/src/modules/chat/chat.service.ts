@@ -1,67 +1,173 @@
-import { Injectable } from '@nestjs/common';
-import { IAService } from '../ia/ia.service';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateChatDto } from './dto/create-chat.dto';
 
 @Injectable()
 export class ChatService {
-  constructor(
-    private prisma: PrismaService,
-    private iaService: IAService,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
-  async createConversa(data: any) {
-    return this.prisma.conversa.create({
-      data: {
-        ...data,
-        status: 'ABERTO',
-        prioridade: 'MEDIA',
-        tags: [],
+  async create(userId: string, createChatDto: CreateChatDto) {
+    // Buscar o usuário pelo email
+    const otherUser = await this.prisma.user.findUnique({
+      where: { email: createChatDto.userEmail },
+    });
+
+    if (!otherUser) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (otherUser.id === userId) {
+      throw new BadRequestException('Não é possível criar chat consigo mesmo');
+    }
+
+    // Verificar se já existe um chat direto entre esses dois usuários
+    const existingChat = await this.prisma.chat.findFirst({
+      where: {
+        type: 'DIRECT',
+        participants: {
+          every: {
+            userId: {
+              in: [userId, otherUser.id],
+            },
+          },
+        },
+      },
+      include: {
+        participants: true,
       },
     });
-  }
 
-  async findConversas(empresaId: string, filters?: any) {
-    const where: any = { empresaId };
+    // Se já existe um chat direto, retornar ele
+    if (existingChat) {
+      const hasBothUsers =
+        existingChat.participants.length === 2 &&
+        existingChat.participants.some((p) => p.userId === userId) &&
+        existingChat.participants.some((p) => p.userId === otherUser.id);
 
-    if (filters?.status) {
-      where.status = filters.status;
+      if (hasBothUsers) {
+        return this.findOne(existingChat.id, userId);
+      }
     }
 
-    if (filters?.prioridade) {
-      where.prioridade = filters.prioridade;
-    }
-
-    if (filters?.canal) {
-      where.canal = filters.canal;
-    }
-
-    if (filters?.search) {
-      where.OR = [
-        {
-          cliente: { nome: { contains: filters.search, mode: 'insensitive' } },
+    // Criar novo chat direto
+    const chat = await this.prisma.chat.create({
+      data: {
+        type: 'DIRECT',
+        participants: {
+          create: [
+            { userId },
+            { userId: otherUser.id },
+          ],
         },
-        {
-          cliente: { email: { contains: filters.search, mode: 'insensitive' } },
-        },
-        { titulo: { contains: filters.search, mode: 'insensitive' } },
-      ];
-    }
-
-    return this.prisma.conversa.findMany({
-      where,
+      },
       include: {
-        cliente: true,
-        agente: true,
-        mensagens: {
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+                isOnline: true,
+                lastSeen: true,
+              },
+            },
+          },
+        },
+        messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
+          include: {
+            sender: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Se há mensagem inicial, criar ela
+    if (createChatDto.initialMessage) {
+      await this.prisma.message.create({
+        data: {
+          chatId: chat.id,
+          senderId: userId,
+          content: createChatDto.initialMessage,
+          type: 'TEXT',
+        },
+      });
+
+      // Buscar chat atualizado com a mensagem
+      return this.findOne(chat.id, userId);
+    }
+
+    return this.formatChatResponse(chat, userId);
+  }
+
+  async findAll(userId: string, search?: string) {
+    const chats = await this.prisma.chat.findMany({
+      where: {
+        participants: {
+          some: {
+            userId,
+          },
+        },
+        ...(search && {
+          participants: {
+            some: {
+              user: {
+                OR: [
+                  { name: { contains: search, mode: 'insensitive' } },
+                  { email: { contains: search, mode: 'insensitive' } },
+                ],
+              },
+            },
+          },
+        }),
+      },
+      include: {
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+                isOnline: true,
+                lastSeen: true,
+              },
+            },
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: {
+            sender: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+              },
+            },
+          },
         },
         _count: {
           select: {
-            mensagens: {
+            messages: {
               where: {
-                remetente: { not: 'agente' },
-                isLida: false,
+                senderId: { not: userId },
+                reads: {
+                  none: {
+                    userId,
+                  },
+                },
               },
             },
           },
@@ -69,215 +175,119 @@ export class ChatService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+
+    return chats.map((chat) => this.formatChatResponse(chat, userId));
   }
 
-  async findConversaById(id: string) {
-    return this.prisma.conversa.findUnique({
+  async findOne(id: string, userId: string) {
+    const chat = await this.prisma.chat.findUnique({
       where: { id },
       include: {
-        cliente: true,
-        agente: true,
-        mensagens: {
-          orderBy: { createdAt: 'asc' },
+        participants: {
           include: {
-            arquivos: true,
-            agente: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+                isOnline: true,
+                lastSeen: true,
+              },
+            },
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: {
+            sender: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            messages: {
+              where: {
+                senderId: { not: userId },
+                reads: {
+                  none: {
+                    userId,
+                  },
+                },
+              },
+            },
           },
         },
       },
     });
+
+    if (!chat) {
+      throw new NotFoundException('Chat não encontrado');
+    }
+
+    // Verificar se o usuário é participante
+    const isParticipant = chat.participants.some((p) => p.userId === userId);
+    if (!isParticipant) {
+      throw new NotFoundException('Acesso negado');
+    }
+
+    return this.formatChatResponse(chat, userId);
   }
 
-  async createMensagem(data: any) {
-    const mensagem = await this.prisma.mensagem.create({
-      data: {
-        ...data,
-        isLida: data.remetente === 'agente',
-      },
+  async getParticipants(chatId: string, userId: string) {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
       include: {
-        arquivos: true,
-        agente: true,
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+                isOnline: true,
+                lastSeen: true,
+              },
+            },
+          },
+        },
       },
     });
 
-    // Atualizar timestamp da conversa
-    await this.prisma.conversa.update({
-      where: { id: data.conversaId },
-      data: { updatedAt: new Date() },
-    });
-
-    return mensagem;
-  }
-
-  async findMensagens(
-    conversaId: string,
-    page: number = 1,
-    limit: number = 50,
-  ) {
-    const skip = (page - 1) * limit;
-
-    return this.prisma.mensagem.findMany({
-      where: { conversaId },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        arquivos: true,
-        agente: true,
-      },
-      skip,
-      take: limit,
-    });
-  }
-
-  async markMessagesAsRead(conversaId: string, agenteId: string) {
-    return this.prisma.mensagem.updateMany({
-      where: {
-        conversaId,
-        remetente: { not: 'agente' },
-        isLida: false,
-      },
-      data: {
-        isLida: true,
-        lidaEm: new Date(),
-      },
-    });
-  }
-
-  async updateConversaStatus(id: string, status: string, agenteId?: string) {
-    const updateData: any = { status };
-
-    if (status === 'EM_ANDAMENTO' && agenteId) {
-      updateData.agenteId = agenteId;
+    if (!chat) {
+      throw new NotFoundException('Chat não encontrado');
     }
 
-    if (status === 'FECHADO') {
-      updateData.fechadaEm = new Date();
+    const isParticipant = chat.participants.some((p) => p.userId === userId);
+    if (!isParticipant) {
+      throw new NotFoundException('Acesso negado');
     }
 
-    return this.prisma.conversa.update({
-      where: { id },
-      data: updateData,
-    });
+    return chat.participants.map((p) => p.user);
   }
 
-  async updateConversaPrioridade(
-    id: string,
-    prioridade: 'BAIXA' | 'MEDIA' | 'ALTA',
-  ) {
-    return this.prisma.conversa.update({
-      where: { id },
-      data: { prioridade },
-    });
-  }
-
-  async addTagsToConversa(id: string, tags: string[]) {
-    const conversa = await this.prisma.conversa.findUnique({
-      where: { id },
-      select: { tags: true },
-    });
-
-    const existingTags = conversa?.tags || [];
-    const newTags = [...new Set([...existingTags, ...tags])];
-
-    return this.prisma.conversa.update({
-      where: { id },
-      data: { tags: newTags },
-    });
-  }
-
-  async removeTagFromConversa(id: string, tag: string) {
-    const conversa = await this.prisma.conversa.findUnique({
-      where: { id },
-      select: { tags: true },
-    });
-
-    const updatedTags = (conversa?.tags || []).filter((t) => t !== tag);
-
-    return this.prisma.conversa.update({
-      where: { id },
-      data: { tags: updatedTags },
-    });
-  }
-
-  async generateIAResponse(
-    empresaId: string,
-    conversaId: string,
-    mensagem: string,
-  ) {
-    // Buscar histórico da conversa
-    const conversa = await this.findConversaById(conversaId);
-    if (!conversa) {
-      throw new Error('Conversa não encontrada');
-    }
-
-    // Preparar histórico para a IA
-    const historico = conversa.mensagens.map((msg) => ({
-      remetente: msg.remetente,
-      conteudo: msg.conteudo,
-      isIA: msg.isIA,
-    }));
-
-    // Gerar resposta com IA
-    const respostaIA = await this.iaService.generateResponse(
-      empresaId,
-      mensagem,
-      historico,
+  private formatChatResponse(chat: any, currentUserId: string) {
+    // Para chat direto, encontrar o outro participante
+    const otherParticipant = chat.participants.find(
+      (p: any) => p.userId !== currentUserId,
     );
 
-    // Criar mensagem da IA
-    const mensagemIA = await this.createMensagem({
-      conversaId,
-      conteudo: respostaIA,
-      tipo: 'TEXTO',
-      remetente: 'ia',
-      isIA: true,
-    });
-
-    return mensagemIA;
-  }
-
-  async getChatMetrics(empresaId: string) {
-    const [
-      totalConversas,
-      conversasAbertas,
-      conversasFechadas,
-      tempoMedioResposta,
-      satisfacaoMedia,
-      mensagensIA,
-    ] = await Promise.all([
-      this.prisma.conversa.count({
-        where: { empresaId },
-      }),
-      this.prisma.conversa.count({
-        where: { empresaId, status: 'ABERTO' },
-      }),
-      this.prisma.conversa.count({
-        where: { empresaId, status: 'FECHADO' },
-      }),
-      this.prisma.conversa.aggregate({
-        where: { empresaId, tempoResposta: { not: null } },
-        _avg: { tempoResposta: true },
-      }),
-      this.prisma.conversa.aggregate({
-        where: { empresaId, satisfacao: { not: null } },
-        _avg: { satisfacao: true },
-      }),
-      this.prisma.mensagem.count({
-        where: {
-          conversa: { empresaId },
-          isIA: true,
-        },
-      }),
-    ]);
-
     return {
-      totalConversas,
-      conversasAbertas,
-      conversasFechadas,
-      tempoMedioResposta: tempoMedioResposta._avg.tempoResposta || 0,
-      satisfacaoMedia: satisfacaoMedia._avg.satisfacao || 0,
-      mensagensIA,
-      taxaResolucaoIA:
-        mensagensIA > 0 ? (mensagensIA / totalConversas) * 100 : 0,
+      id: chat.id,
+      type: chat.type,
+      name: chat.name || otherParticipant?.user?.name,
+      otherUser: otherParticipant?.user,
+      lastMessage: chat.messages[0] || null,
+      unreadCount: chat._count?.messages || 0,
+      updatedAt: chat.updatedAt,
+      createdAt: chat.createdAt,
     };
   }
 }
