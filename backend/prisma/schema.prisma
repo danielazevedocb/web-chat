@@ -10,104 +10,240 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum ChatType {
-  DIRECT
-  GROUP
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  AGENTE
 }
 
-enum MessageType {
-  TEXT
-  IMAGE
+enum StatusConversa {
+  ABERTO
+  EM_ANDAMENTO
+  AGUARDANDO
+  RESOLVIDO
+  FECHADO
+}
+
+enum Prioridade {
+  BAIXA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum StatusAgendamento {
+  AGENDADO
+  CONFIRMADO
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO
+  REAGENDADO
+}
+
+enum TipoMensagem {
+  TEXTO
+  IMAGEM
   AUDIO
   VIDEO
-  FILE
-  EMOJI
+  DOCUMENTO
+  STICKER
+  LOCALIZACAO
+  CONTATO
 }
 
-model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  avatar    String?
-  bio       String?
-  isOnline  Boolean  @default(false)
-  lastSeen  DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ============================================
+// MODELS
+// ============================================
+
+model Empresa {
+  id              String   @id @default(uuid())
+  nome            String
+  slug            String   @unique
+  descricao       String?
+  email           String?
+  telefone        String?
+  endereco        String?
+  logo            String?
+  corPrimaria     String?
+  corSecundaria   String?
+  plano           String?
+  limiteUsuarios  Int?
+  limiteConversas Int?
+  ativo           Boolean  @default(true)
+  configuracao    Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Relacionamentos
-  sentMessages     Message[]
-  chatParticipants ChatParticipant[]
-  messageReads     MessageRead[]
+  usuarios        Usuario[]
+  clientes        Cliente[]
+  conversas       Conversa[]
+  agendamentos    Agendamento[]
+  configuracaoIA  ConfiguracaoIA?
 
-  @@map("users")
+  @@map("empresas")
+  @@index([slug])
+  @@index([ativo])
 }
 
-model Chat {
-  id        String   @id @default(uuid())
-  type      ChatType @default(DIRECT)
-  name      String?  // Para grupos
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Usuario {
+  id          String   @id @default(uuid())
+  nome        String
+  email       String   @unique
+  senha       String
+  telefone    String?
+  avatar      String?
+  role        Role
+  empresaId   String?
+  ativo       Boolean  @default(true)
+  ultimoLogin DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relacionamentos
-  participants ChatParticipant[]
-  messages     Message[]
+  empresa        Empresa?        @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  conversas      Conversa[]      @relation("AgenteConversas")
+  mensagens      Mensagem[]      @relation("AgenteMensagens")
+  agendamentos   Agendamento[]
 
-  @@map("chats")
+  @@map("usuarios")
+  @@index([email])
+  @@index([empresaId])
+  @@index([role])
+  @@index([ativo])
 }
 
-model ChatParticipant {
-  id         String   @id @default(uuid())
-  chatId     String
-  userId     String
-  role       String   @default("MEMBER") // MEMBER, ADMIN (para grupos)
-  joinedAt   DateTime @default(now())
-  lastReadAt DateTime?
+model Cliente {
+  id          String      @id @default(uuid())
+  nome        String
+  email       String?
+  telefone    String?
+  avatar      String?
+  documento   String?
+  endereco    String?
+  observacoes String?
+  tags        String[]
+  ativo       Boolean     @default(true)
+  empresaId   String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   // Relacionamentos
-  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  empresa      Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  conversas    Conversa[]
+  agendamentos Agendamento[]
 
-  @@unique([chatId, userId])
-  @@map("chat_participants")
+  @@map("clientes")
+  @@index([empresaId])
+  @@index([email])
+  @@index([telefone])
+  @@index([ativo])
 }
 
-model Message {
-  id        String      @id @default(uuid())
-  chatId    String
-  senderId  String
-  content   String?
-  type      MessageType @default(TEXT)
-  fileUrl   String?
-  fileSize  Int?        // Tamanho em bytes
-  mimeType  String?
-  replyToId String?     // ID da mensagem respondida
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+model Conversa {
+  id               String          @id @default(uuid())
+  titulo           String?
+  status           StatusConversa  @default(ABERTO)
+  prioridade       Prioridade      @default(MEDIA)
+  canal            String
+  identificadorCanal String?
+  sla              Int?
+  tempoResposta    Int?
+  satisfacao       Int?
+  observacoes      String?
+  tags             String[]
+  fechadaEm        DateTime?
+  empresaId        String
+  clienteId        String
+  agenteId         String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   // Relacionamentos
-  chat     Chat         @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender   User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  replyTo  Message?     @relation("MessageReplies", fields: [replyToId], references: [id])
-  replies  Message[]    @relation("MessageReplies")
-  reads    MessageRead[]
+  empresa    Empresa   @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  cliente    Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  agente     Usuario?  @relation("AgenteConversas", fields: [agenteId], references: [id], onDelete: SetNull)
+  mensagens  Mensagem[]
 
-  @@index([chatId, createdAt])
-  @@map("messages")
+  @@map("conversas")
+  @@index([empresaId])
+  @@index([clienteId])
+  @@index([agenteId])
+  @@index([status])
+  @@index([createdAt])
 }
 
-model MessageRead {
-  id        String   @id @default(uuid())
-  messageId String
-  userId    String
-  readAt    DateTime @default(now())
+model Mensagem {
+  id          String        @id @default(uuid())
+  conversaId  String
+  conteudo    String?
+  tipo        TipoMensagem  @default(TEXTO)
+  remetente   String        // 'cliente' ou 'agente'
+  isIA        Boolean       @default(false)
+  isLida      Boolean       @default(false)
+  arquivoUrl  String?
+  arquivoTipo String?
+  agenteId    String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   // Relacionamentos
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversa Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  agente   Usuario? @relation("AgenteMensagens", fields: [agenteId], references: [id], onDelete: SetNull)
 
-  @@unique([messageId, userId])
-  @@map("message_reads")
+  @@map("mensagens")
+  @@index([conversaId, createdAt])
+  @@index([isLida])
+}
+
+model Agendamento {
+  id          String            @id @default(uuid())
+  titulo      String
+  descricao   String?
+  dataHora    DateTime
+  duracao     Int               // Duração em minutos
+  status      StatusAgendamento @default(AGENDADO)
+  tipo        String?
+  empresaId   String
+  clienteId   String
+  agenteId    String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  // Relacionamentos
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  agente  Usuario? @relation(fields: [agenteId], references: [id], onDelete: SetNull)
+
+  @@map("agendamentos")
+  @@index([empresaId])
+  @@index([clienteId])
+  @@index([agenteId])
+  @@index([dataHora])
+  @@index([status])
+}
+
+model ConfiguracaoIA {
+  id            String   @id @default(uuid())
+  empresaId     String   @unique
+  promptBase    String   @db.Text
+  modelo        String   @default("gpt-4")
+  temperatura   Float    @default(0.7)
+  maxTokens     Int      @default(1000)
+  modoAutomatico Boolean  @default(false)
+  idioma        String   @default("pt-BR")
+  personalidade String?
+  faq           String[]
+  palavrasChave String[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relacionamentos
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@map("configuracao_ia")
 }

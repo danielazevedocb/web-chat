@@ -20,7 +20,7 @@ Sistema completo de atendimento ao cliente com suporte multi-empresa, integraç�
 - **Framework**: NestJS
 - **Linguagem**: TypeScript
 - **ORM**: Prisma
-- **Banco de Dados**: MongoDB Atlas
+- **Banco de Dados**: PostgreSQL
 - **Real-time**: Socket.io
 - **IA**: OpenAI API
 - **Storage**: Cloudinary
@@ -36,16 +36,16 @@ Sistema completo de atendimento ao cliente com suporte multi-empresa, integraç�
 
 ### Infraestrutura
 - **Containerização**: Docker & Docker Compose
-- **Cache**: Redis
+- **Cache**: Redis (configurado no docker-compose, uso opcional)
 - **CI/CD**: GitHub Actions (opcional)
 
 ## 📋 Pré-requisitos
 
 - Node.js 18+
-- MongoDB Atlas (conta gratuita disponível)
+- PostgreSQL 16+ (ou usar Docker Compose para iniciar localmente)
 - Conta OpenAI (para API)
 - Conta Cloudinary ou AWS S3 (para upload de arquivos)
-- Docker e Docker Compose (opcional)
+- Docker e Docker Compose (opcional, mas recomendado)
 
 ## 🚀 Instalação Rápida
 
@@ -66,20 +66,35 @@ npm install
 cp .env.example .env
 
 # Editar o .env com suas credenciais
-# MongoDB Atlas, OpenAI API Key, Cloudinary, etc.
+# PostgreSQL, OpenAI API Key, Cloudinary, etc.
 ```
 
 ### 3. Configurar o Banco de Dados
 
+**Opção 1: Usando Docker Compose (Recomendado)**
+```bash
+# Iniciar PostgreSQL e Redis
+docker-compose up -d postgres redis
+
+# Aguardar alguns segundos para o banco inicializar
+```
+
+**Opção 2: PostgreSQL Local**
+```bash
+# Certifique-se de ter PostgreSQL instalado e rodando
+# Configure a DATABASE_URL no .env
+```
+
+**Depois, em ambos os casos:**
 ```bash
 # Gerar o cliente Prisma
-npx prisma generate
+npm run prisma:generate
 
-# Executar migrations
-npx prisma db push
+# Executar migrations/push do schema
+npm run prisma:push
 
 # Popular banco com dados iniciais
-npm run seed
+npm run prisma:seed
 ```
 
 ### 4. Configurar o Frontend
@@ -109,9 +124,11 @@ cd frontend
 npm run dev
 ```
 
-**Terminal 3 - Redis (opcional):**
+**Terminal 3 - Redis (opcional, já incluído no docker-compose):**
 ```bash
-docker-compose up redis
+# Redis já está rodando se você executou docker-compose up -d
+# Ou inicie separadamente:
+docker-compose up -d redis
 ```
 
 ## 🌐 Acessos
@@ -124,24 +141,29 @@ docker-compose up redis
 
 Após executar o seed:
 
-- **Admin**
-  - Email: `admin@webchat.com`
+- **Super Admin**
+  - Email: `admin@sistema.com`
   - Senha: `admin123`
 
-- **Gerente**
-  - Email: `gerente@webchat.com`
-  - Senha: `gerente123`
+- **Admin da Empresa**
+  - Email: `admin@empresaexemplo.com`
+  - Senha: `admin123`
 
 - **Agente**
-  - Email: `agente@webchat.com`
-  - Senha: `agente123`
+  - Email: `agente1@empresaexemplo.com` ou `agente2@empresaexemplo.com`
+  - Senha: `admin123`
 
 ## 📖 Documentação Adicional
 
-- [Guia de Execução](./EXECUTAR_PROJETO.md)
-- [Configuração do Cloudinary](./CONFIGURACAO_CLOUDINARY.md)
-- [Documentação Docker + Redis](./README_DOCKER_REDIS.md)
-- [Setup de Instalação](./SETUP_INSTRUCTIONS.md)
+### Documentação Principal
+- [Guia de Execução](./EXECUTAR_PROJETO.md) - Passo a passo para executar o projeto
+- [Configuração do Cloudinary](./CONFIGURACAO_CLOUDINARY.md) - Configuração de upload de arquivos
+- [Documentação Docker + Redis](./README_DOCKER_REDIS.md) - Configuração de infraestrutura
+
+### Documentação de Desenvolvimento
+- [Setup de Instalação](./SETUP_INSTRUCTIONS.md) - Instruções detalhadas de setup
+
+**Nota:** Outros arquivos MD no projeto são documentos históricos de implementação e podem ser consultados para referência, mas o README principal contém as informações mais atualizadas.
 
 ## 📁 Estrutura do Projeto
 

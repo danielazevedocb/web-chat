@@ -7,47 +7,41 @@ Este guia te ajudará a executar o sistema completo de atendimento multi-empresa
 Antes de começar, certifique-se de ter instalado:
 
 - **Node.js 18+** ([Download](https://nodejs.org/))
-- **MongoDB Atlas** (conta gratuita)
+- **PostgreSQL 16+** (ou usar Docker Compose)
+- **Docker e Docker Compose** (recomendado)
 - **Conta OpenAI** (para API)
 - **Git** (para clonar o repositório)
 
-## 🗄️ 1. Configuração do MongoDB Atlas
+## 🗄️ 1. Configuração do PostgreSQL
 
-### Passo 1: Criar conta no MongoDB Atlas
+### Opção 1: Usando Docker Compose (Recomendado)
 
-1. Acesse [MongoDB Atlas](https://cloud.mongodb.com/)
-2. Crie uma conta gratuita
-3. Crie um novo projeto
+1. No diretório raiz do projeto, execute:
+   ```bash
+   docker-compose up -d postgres redis
+   ```
 
-### Passo 2: Criar cluster
+2. Aguarde alguns segundos para o banco inicializar
 
-1. Clique em "Build a Database"
-2. Escolha o plano **M0 Sandbox (Free)**
-3. Escolha uma região próxima ao Brasil
-4. Nomeie seu cluster (ex: "atendimento-cluster")
-5. Clique em "Create"
+3. A string de conexão já está configurada no `.env.example`:
+   ```
+   postgresql://qrptalk:qrptalk123@localhost:5432/qrptalk_db?schema=public
+   ```
 
-### Passo 3: Configurar acesso
+### Opção 2: PostgreSQL Local
 
-1. Crie um usuário de banco de dados:
-   - Username: `atendimento-user`
-   - Password: `atendimento123` (ou uma senha forte)
-2. Configure acesso de rede:
-   - Adicione seu IP atual
-   - Ou use `0.0.0.0/0` para desenvolvimento (não recomendado para produção)
+1. Instale o PostgreSQL 16+ no seu sistema
+2. Crie um banco de dados:
+   ```sql
+   CREATE DATABASE qrptalk_db;
+   CREATE USER qrptalk WITH PASSWORD 'qrptalk123';
+   GRANT ALL PRIVILEGES ON DATABASE qrptalk_db TO qrptalk;
+   ```
 
-### Passo 4: Obter string de conexão
-
-1. Clique em "Connect" no seu cluster
-2. Escolha "Connect your application"
-3. Copie a string de conexão
-4. Substitua `<password>` pela senha do usuário criado
-
-**Exemplo de string de conexão:**
-
-```
-mongodb+srv://atendimento-user:atendimento123@atendimento-cluster.xxxxx.mongodb.net/atendimento?retryWrites=true&w=majority
-```
+3. Configure a string de conexão no `.env`:
+   ```
+   postgresql://qrptalk:qrptalk123@localhost:5432/qrptalk_db?schema=public
+   ```
 
 ## 🔧 2. Configuração do Backend
 
@@ -68,7 +62,8 @@ Edite o arquivo `.env` com suas configurações:
 
 ```env
 # Database
-DATABASE_URL="mongodb+srv://atendimento-user:atendimento123@atendimento-cluster.xxxxx.mongodb.net/atendimento?retryWrites=true&w=majority"
+# Para desenvolvimento local com Docker: postgresql://qrptalk:qrptalk123@localhost:5432/qrptalk_db
+DATABASE_URL="postgresql://qrptalk:qrptalk123@localhost:5432/qrptalk_db?schema=public"
 
 # JWT
 JWT_SECRET="sua-chave-super-secreta-jwt-mude-em-producao"
@@ -252,13 +247,14 @@ OPENAI_API_KEY="sk-sua-chave-aqui"
 
 ## 🐛 8. Solução de Problemas
 
-### Problema: Erro de conexão com MongoDB
+### Problema: Erro de conexão com PostgreSQL
 
 **Solução:**
 
-1. Verifique se a string de conexão está correta
-2. Confirme se o usuário tem permissões
-3. Verifique se o IP está liberado no MongoDB Atlas
+1. Verifique se a string de conexão está correta no `.env`
+2. Confirme se o PostgreSQL está rodando (docker-compose up -d postgres)
+3. Verifique se as credenciais estão corretas
+4. Confirme se o banco de dados foi criado
 
 ### Problema: Erro de CORS
 
@@ -307,9 +303,9 @@ Para continuar o desenvolvimento:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   Backend       │    │   MongoDB       │
-│   (Next.js)     │◄──►│   (NestJS)      │◄──►│   Atlas         │
-│   Port: 3000    │    │   Port: 3001    │    │   Cloud         │
+│   Frontend      │    │   Backend       │    │   PostgreSQL    │
+│   (Next.js)     │◄──►│   (NestJS)      │◄──►│   Database      │
+│   Port: 3000    │    │   Port: 3001    │    │   Port: 5432    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │
          │                       │

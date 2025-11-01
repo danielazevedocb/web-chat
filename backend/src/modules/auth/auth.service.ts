@@ -18,93 +18,155 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
-  async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.prisma.user.findUnique({
+  async validateUser(email: string, senha: string): Promise<any> {
+    const usuario = await this.prisma.usuario.findUnique({
       where: { email },
     });
 
-    if (!user) {
+    if (!usuario) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!usuario.ativo) {
+      throw new UnauthorizedException('Usuário inativo');
+    }
+
+    const isPasswordValid = await bcrypt.compare(senha, usuario.senha);
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    const { password: _, ...result } = user;
+    const { senha: _, ...result } = usuario;
     return result;
   }
 
   async login(loginDto: LoginDto) {
-    // LoginDto usa 'senha', mas vamos usar 'password' internamente
-    const user = await this.validateUser(loginDto.email, loginDto.senha);
+    const usuario = await this.validateUser(loginDto.email, loginDto.senha);
 
     const payload = {
-      sub: user.id,
-      email: user.email,
+      sub: usuario.id,
+      email: usuario.email,
+      role: usuario.role,
+      empresaId: usuario.empresaId,
     };
 
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '24h'),
+    });
+
+    const refreshToken = this.jwtService.sign(
+      { sub: usuario.id, type: 'refresh' },
+      {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: this.configService.get<string>(
+          'JWT_REFRESH_EXPIRES_IN',
+          '7d',
+        ),
+      },
+    );
 
     // Atualizar último login
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { 
-        lastSeen: new Date(),
-        isOnline: true,
+    await this.prisma.usuario.update({
+      where: { id: usuario.id },
+      data: {
+        ultimoLogin: new Date(),
       },
     });
 
     return {
       accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        bio: user.bio,
+      refreshToken,
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        avatar: usuario.avatar,
+        role: usuario.role,
+        empresaId: usuario.empresaId,
       },
     };
   }
 
   async register(registerDto: RegisterDto) {
-    const existingUser = await this.prisma.user.findUnique({
+    const existingUsuario = await this.prisma.usuario.findUnique({
       where: { email: registerDto.email },
     });
 
-    if (existingUser) {
+    if (existingUsuario) {
       throw new BadRequestException('Email já está em uso');
     }
 
-    const passwordHash = await bcrypt.hash(registerDto.senha, 10);
+    const senhaHash = await bcrypt.hash(registerDto.senha, 10);
 
-    const user = await this.prisma.user.create({
+    const usuario = await this.prisma.usuario.create({
       data: {
-        name: registerDto.nome,
+        nome: registerDto.nome,
         email: registerDto.email,
-        password: passwordHash,
+        senha: senhaHash,
+        role: 'AGENTE', // Role padrão, pode ser ajustado conforme necessidade
+        ativo: true,
       },
     });
 
-    const { password: _, ...result } = user;
+    const { senha: _, ...result } = usuario;
     return result;
   }
 
   async validateUserById(userId: string) {
-    return this.prisma.user.findUnique({
+    return this.prisma.usuario.findUnique({
       where: { id: userId },
     });
   }
 
+  async refreshToken(refreshToken: string) {
+    try {
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      });
+
+      if (payload.type !== 'refresh') {
+        throw new UnauthorizedException('Token inválido');
+      }
+
+      const usuario = await this.validateUserById(payload.sub);
+
+      if (!usuario || !usuario.ativo) {
+        throw new UnauthorizedException('Usuário não encontrado ou inativo');
+      }
+
+      const newPayload = {
+        sub: usuario.id,
+        email: usuario.email,
+        role: usuario.role,
+        empresaId: usuario.empresaId,
+      };
+
+      const accessToken = this.jwtService.sign(newPayload, {
+        expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '24h'),
+      });
+
+      return {
+        accessToken,
+        usuario: {
+          id: usuario.id,
+          nome: usuario.nome,
+          email: usuario.email,
+          avatar: usuario.avatar,
+          role: usuario.role,
+          empresaId: usuario.empresaId,
+        },
+      };
+    } catch (error) {
+      throw new UnauthorizedException('Refresh token inválido ou expirado');
+    }
+  }
+
   async logout(userId: string) {
-    // Atualizar status offline
-    await this.prisma.user.update({
+    await this.prisma.usuario.update({
       where: { id: userId },
-      data: { 
-        isOnline: false,
-        lastSeen: new Date(),
+      data: {
+        ultimoLogin: new Date(),
       },
     });
     return { message: 'Logout realizado com sucesso' };

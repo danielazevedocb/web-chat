@@ -4,7 +4,7 @@ Sistema completo de atendimento ao cliente com suporte multi-empresa, integraç�
 
 ## 🚀 Tecnologias
 
-- **Backend**: NestJS + Prisma + MongoDB Atlas
+- **Backend**: NestJS + Prisma + PostgreSQL
 - **Frontend**: Next.js + TypeScript + Tailwind CSS
 - **Automação**: n8n
 - **IA**: OpenAI (GPT-4)
@@ -14,7 +14,7 @@ Sistema completo de atendimento ao cliente com suporte multi-empresa, integraç�
 ## 📋 Pré-requisitos
 
 - Node.js 18+
-- MongoDB Atlas (conta gratuita)
+- PostgreSQL 16+ (ou usar Docker Compose para iniciar localmente)
 - Conta OpenAI (para API)
 - Conta AWS ou Cloudinary (para upload de arquivos)
 
@@ -27,14 +27,21 @@ cd atendimento-backend
 npm install
 ```
 
-### 2. Configurar MongoDB Atlas
+### 2. Configurar Banco de Dados
 
-1. Acesse [MongoDB Atlas](https://cloud.mongodb.com/)
-2. Crie uma conta gratuita
-3. Crie um novo cluster (M0 - Free)
-4. Configure o acesso de rede (0.0.0.0/0 para desenvolvimento)
-5. Crie um usuário de banco de dados
-6. Copie a string de conexão
+**Opção 1: Usando Docker Compose (Recomendado)**
+```bash
+# Iniciar PostgreSQL e Redis
+docker-compose up -d postgres redis
+
+# Aguardar alguns segundos para o banco inicializar
+```
+
+**Opção 2: PostgreSQL Local**
+```bash
+# Certifique-se de ter PostgreSQL instalado e rodando
+# Configure a DATABASE_URL no .env
+```
 
 ### 3. Configurar variáveis de ambiente
 
@@ -46,7 +53,8 @@ Edite o arquivo `.env` com suas configurações:
 
 ```env
 # Database
-DATABASE_URL="mongodb+srv://username:password@cluster.mongodb.net/atendimento?retryWrites=true&w=majority"
+# Para desenvolvimento local com Docker: postgresql://qrptalk:qrptalk123@localhost:5432/qrptalk_db
+DATABASE_URL="postgresql://qrptalk:qrptalk123@localhost:5432/qrptalk_db?schema=public"
 
 # JWT
 JWT_SECRET="your-super-secret-jwt-key-change-in-production"
@@ -236,7 +244,7 @@ atendimento-backend/
 - Paginação em todas as listas
 - Lazy loading de mensagens
 - Compressão de respostas
-- Índices otimizados no MongoDB
+- Índices otimizados no PostgreSQL
 
 ## 🚀 Deploy
 

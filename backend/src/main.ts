@@ -8,6 +8,7 @@ import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -23,16 +24,39 @@ async function bootstrap() {
   app.use(helmet());
   app.use(compression());
   
+  // Global exception filter
+  app.useGlobalFilters(new HttpExceptionFilter());
+
   // Global interceptors
   app.useGlobalInterceptors(
     new LoggingInterceptor(),
     new LoggerErrorInterceptor(),
   );
 
-  // CORS
+  // CORS - Suporta múltiplas origens separadas por vírgula
+  const corsOrigins = configService.get<string>('CORS_ORIGIN') || 'http://localhost:3000';
+  const allowedOrigins = corsOrigins.split(',').map((origin) => origin.trim());
+  
   app.enableCors({
-    origin: configService.get('CORS_ORIGIN') || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Permite requisições sem origin (ex: mobile apps, Postman)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // Permite se estiver na lista ou se for desenvolvimento
+      if (
+        allowedOrigins.includes(origin) ||
+        configService.get('NODE_ENV') === 'development'
+      ) {
+        return callback(null, true);
+      }
+      
+      callback(new Error('Não permitido pelo CORS'));
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   // Global validation pipe

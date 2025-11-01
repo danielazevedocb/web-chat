@@ -1,5 +1,7 @@
 # Configuração Redis com Docker
 
+> **Nota**: Redis está configurado e disponível no docker-compose, mas ainda não está implementado no código da aplicação. Ele está pronto para uso futuro para cache, rate limiting distribuído, ou sessões.
+
 ## 🚀 Como Iniciar o Redis
 
 ### Opção 1: Docker Compose (Recomendado)

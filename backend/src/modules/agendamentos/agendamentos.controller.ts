@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Patch, UseGuards, Query } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreateAgendamentoDto, UpdateAgendamentoDto } from './dto/create-agendamento.dto';
 import { AgendamentosService } from './agendamentos.service';
 
 @Controller('agendamentos')
@@ -8,17 +9,17 @@ export class AgendamentosController {
   constructor(private readonly agendamentosService: AgendamentosService) {}
 
   @Get()
-  getAgendamentos(@Param('empresaId') empresaId: string) {
+  getAgendamentos(@Query('empresaId') empresaId: string) {
     return this.agendamentosService.findAgendamentos(empresaId);
   }
 
   @Post()
-  createAgendamento(@Body() data: any) {
-    return this.agendamentosService.createAgendamento(data);
+  createAgendamento(@Body() createAgendamentoDto: CreateAgendamentoDto) {
+    return this.agendamentosService.createAgendamento(createAgendamentoDto);
   }
 
-  @Post(':id')
-  updateAgendamento(@Param('id') id: string, @Body() data: any) {
-    return this.agendamentosService.updateAgendamento(id, data);
+  @Patch(':id')
+  updateAgendamento(@Param('id') id: string, @Body() updateAgendamentoDto: UpdateAgendamentoDto) {
+    return this.agendamentosService.updateAgendamento(id, updateAgendamentoDto);
   }
 }

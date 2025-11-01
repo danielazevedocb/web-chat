@@ -18,12 +18,18 @@ import { TicketsModule } from './modules/tickets/tickets.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { UsersModule } from './modules/users/users.module';
+import { validate } from './config/env.validation';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validate,
+      validationOptions: {
+        allowUnknown: true,
+        abortEarly: false,
+      },
     }),
     ThrottlerModule.forRoot([
       {

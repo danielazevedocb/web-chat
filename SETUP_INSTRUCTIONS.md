@@ -3,7 +3,7 @@
 ## 📋 Pré-requisitos
 
 - Node.js 18+ instalado
-- MongoDB Atlas configurado
+- PostgreSQL 16+ (ou usar Docker Compose para iniciar localmente)
 - Conta OpenAI (opcional, para IA)
 
 ## 🔧 Configuração do Backend
@@ -17,7 +17,7 @@ npm install
 
 ### 2. Configurar variáveis de ambiente
 
-O arquivo `.env` já foi criado com a conexão do MongoDB. Você pode editar as seguintes variáveis se necessário:
+O arquivo `.env` deve ser configurado com a conexão do PostgreSQL. Você pode editar as seguintes variáveis se necessário:
 
 - `JWT_SECRET`: Chave secreta para JWT (mude em produção)
 - `JWT_REFRESH_SECRET`: Chave secreta para refresh token (mude em produção)
@@ -133,13 +133,14 @@ Para usar a funcionalidade de IA:
 
 ## 🐛 Solução de Problemas
 
-### Problema: Erro de conexão com MongoDB
+### Problema: Erro de conexão com PostgreSQL
 
 **Solução:**
 
 1. Verifique se a string de conexão está correta no `.env`
-2. Confirme se o usuário tem permissões no MongoDB Atlas
-3. Verifique se o IP está liberado no MongoDB Atlas
+2. Confirme se o PostgreSQL está rodando (docker-compose up -d postgres)
+3. Verifique se as credenciais estão corretas
+4. Confirme se o banco de dados foi criado
 
 ### Problema: Erro de CORS
 
