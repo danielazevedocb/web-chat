@@ -159,11 +159,25 @@ Após executar o seed:
 - [Guia de Execução](./EXECUTAR_PROJETO.md) - Passo a passo para executar o projeto
 - [Configuração do Cloudinary](./CONFIGURACAO_CLOUDINARY.md) - Configuração de upload de arquivos
 - [Documentação Docker + Redis](./README_DOCKER_REDIS.md) - Configuração de infraestrutura
-
-### Documentação de Desenvolvimento
 - [Setup de Instalação](./SETUP_INSTRUCTIONS.md) - Instruções detalhadas de setup
 
-**Nota:** Outros arquivos MD no projeto são documentos históricos de implementação e podem ser consultados para referência, mas o README principal contém as informações mais atualizadas.
+### Documentação Histórica
+Documentos históricos de implementação estão disponíveis em `docs/historical/` para referência.
+
+## 🔒 Segurança e Isolamento Multi-Tenant
+
+O sistema implementa isolamento completo de dados entre empresas:
+
+- **Validação de empresaId**: Todos os endpoints validam que o usuário pertence à empresa solicitada
+- **WebSocket Seguro**: Conexões WebSocket validam token JWT e empresaId antes de permitir operações
+- **Validação de Acesso**: Agentes/Admins podem acessar recursos da empresa, clientes apenas seus próprios recursos
+- **Guards e Decorators**: Sistema de guards e decorators para validação automática de empresaId
+
+## 🛡️ Tratamento de Erros
+
+- **Filtro Global de Exceções**: Todas as exceções são capturadas e formatadas consistentemente
+- **Logging Aprimorado**: Logs incluem empresaId, role e sanitização de dados sensíveis
+- **Exceções Customizadas**: Exceções específicas para melhor tratamento de erros relacionados a empresas
 
 ## 📁 Estrutura do Projeto
 
