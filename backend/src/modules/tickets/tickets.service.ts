@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketDto, UpdateTicketDto } from './dto/create-ticket.dto';
 
@@ -6,10 +6,38 @@ import { CreateTicketDto, UpdateTicketDto } from './dto/create-ticket.dto';
 export class TicketsService {
   constructor(private prisma: PrismaService) {}
 
-  async createTicket(createTicketDto: CreateTicketDto) {
+  async createTicket(createTicketDto: CreateTicketDto, empresaId: string) {
+    // Validar que o cliente pertence à empresa
+    const cliente = await this.prisma.cliente.findFirst({
+      where: {
+        id: createTicketDto.clienteId,
+        empresaId,
+      },
+    });
+
+    if (!cliente) {
+      throw new NotFoundException('Cliente não encontrado ou não pertence à sua empresa');
+    }
+
+    // Se houver agenteId, validar que pertence à empresa
+    if (createTicketDto.agenteId) {
+      const agente = await this.prisma.usuario.findFirst({
+        where: {
+          id: createTicketDto.agenteId,
+          empresaId,
+          role: { in: ['AGENTE', 'ADMIN'] },
+        },
+      });
+
+      if (!agente) {
+        throw new NotFoundException('Agente não encontrado ou não pertence à sua empresa');
+      }
+    }
+
     return this.prisma.conversa.create({
       data: {
         ...createTicketDto,
+        empresaId,
         status: createTicketDto.status || 'ABERTO',
         prioridade: createTicketDto.prioridade || 'MEDIA',
       },
@@ -60,13 +88,45 @@ export class TicketsService {
     });
   }
 
-  async updateTicket(id: string, updateTicketDto: UpdateTicketDto) {
-    const ticket = await this.prisma.conversa.findUnique({
-      where: { id },
+  async updateTicket(id: string, updateTicketDto: UpdateTicketDto, empresaId: string) {
+    const ticket = await this.prisma.conversa.findFirst({
+      where: {
+        id,
+        empresaId,
+      },
     });
 
     if (!ticket) {
-      throw new NotFoundException('Ticket não encontrado');
+      throw new NotFoundException('Ticket não encontrado ou não pertence à sua empresa');
+    }
+
+    // Se estiver atualizando clienteId, validar que pertence à empresa
+    if (updateTicketDto.clienteId && updateTicketDto.clienteId !== ticket.clienteId) {
+      const cliente = await this.prisma.cliente.findFirst({
+        where: {
+          id: updateTicketDto.clienteId,
+          empresaId,
+        },
+      });
+
+      if (!cliente) {
+        throw new NotFoundException('Cliente não encontrado ou não pertence à sua empresa');
+      }
+    }
+
+    // Se estiver atualizando agenteId, validar que pertence à empresa
+    if (updateTicketDto.agenteId && updateTicketDto.agenteId !== ticket.agenteId) {
+      const agente = await this.prisma.usuario.findFirst({
+        where: {
+          id: updateTicketDto.agenteId,
+          empresaId,
+          role: { in: ['AGENTE', 'ADMIN'] },
+        },
+      });
+
+      if (!agente) {
+        throw new NotFoundException('Agente não encontrado ou não pertence à sua empresa');
+      }
     }
 
     // Se o status for FECHADO ou RESOLVIDO, atualizar fechadaEm

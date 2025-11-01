@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Patch, UseGuards, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Patch, UseGuards, Request, BadRequestException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateTicketDto, UpdateTicketDto } from './dto/create-ticket.dto';
 import { TicketsService } from './tickets.service';
@@ -9,17 +9,29 @@ export class TicketsController {
   constructor(private readonly ticketsService: TicketsService) {}
 
   @Get()
-  getTickets(@Query('empresaId') empresaId: string) {
+  getTickets(@Request() req: any) {
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
     return this.ticketsService.findTickets(empresaId);
   }
 
   @Post()
-  createTicket(@Body() createTicketDto: CreateTicketDto) {
-    return this.ticketsService.createTicket(createTicketDto);
+  createTicket(@Body() createTicketDto: CreateTicketDto, @Request() req: any) {
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.ticketsService.createTicket(createTicketDto, empresaId);
   }
 
   @Patch(':id')
-  updateTicket(@Param('id') id: string, @Body() updateTicketDto: UpdateTicketDto) {
-    return this.ticketsService.updateTicket(id, updateTicketDto);
+  updateTicket(@Param('id') id: string, @Body() updateTicketDto: UpdateTicketDto, @Request() req: any) {
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.ticketsService.updateTicket(id, updateTicketDto, empresaId);
   }
 }
