@@ -61,13 +61,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     // Resposta padronizada
-    response.status(status).json({
+    const responseBody: any = {
       statusCode: status,
       timestamp: errorLog.timestamp,
       path: request.url,
       message,
       error,
-    });
+    };
+
+    // Adicionar informações adicionais em desenvolvimento
+    if (process.env.NODE_ENV === 'development' && exception instanceof Error) {
+      responseBody.stack = exception.stack;
+    }
+
+    response.status(status).json(responseBody);
   }
 }
 

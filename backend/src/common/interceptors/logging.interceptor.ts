@@ -18,6 +18,13 @@ export class LoggingInterceptor implements NestInterceptor {
     const now = Date.now();
 
     const message = `${method} ${url}`;
+    const logContext = {
+      method,
+      url,
+      user: user?.email || 'anonymous',
+      empresaId: user?.empresaId || 'none',
+      role: user?.role || 'none',
+    };
 
     return next.handle().pipe(
       tap({
@@ -27,12 +34,10 @@ export class LoggingInterceptor implements NestInterceptor {
 
           this.logger.log(
             {
-              method,
-              url,
+              ...logContext,
               statusCode: response.statusCode,
               delay: `${delay}ms`,
-              user: user?.email || 'anonymous',
-              body: method !== 'GET' ? body : undefined,
+              body: method !== 'GET' && body ? this.sanitizeBody(body) : undefined,
             },
             message,
           );
@@ -42,17 +47,29 @@ export class LoggingInterceptor implements NestInterceptor {
 
           this.logger.error(
             {
-              method,
-              url,
+              ...logContext,
               error: error.message,
               delay: `${delay}ms`,
-              user: user?.email || 'anonymous',
-              stack: error.stack,
+              statusCode: error.status || 500,
+              stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
             },
             message,
           );
         },
       }),
     );
+  }
+
+  private sanitizeBody(body: any): any {
+    if (!body) return body;
+    
+    const sanitized = { ...body };
+    
+    // Remover campos sensíveis
+    if (sanitized.senha) sanitized.senha = '***';
+    if (sanitized.password) sanitized.password = '***';
+    if (sanitized.token) sanitized.token = '***';
+    
+    return sanitized;
   }
 }
