@@ -14,6 +14,12 @@ import { CreateMessageDto } from '../messages/dto/create-message.dto';
 import { MessagesService } from '../messages/messages.service';
 import { PrismaService } from '../prisma/prisma.service';
 
+interface SocketUser {
+  userId: string;
+  empresaId: string;
+  role: string;
+}
+
 @WebSocketGateway({
   cors: {
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -25,7 +31,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  private connectedUsers = new Map<string, string>(); // socketId -> userId
+  private connectedUsers = new Map<string, SocketUser>(); // socketId -> user info
 
   constructor(
     private messagesService: MessagesService,
@@ -38,41 +44,81 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`Cliente conectado: ${client.id}`);
     
     try {
-      // Tentar obter userId do auth ou do token
-      let userId = client.handshake.auth?.userId;
+      // Obter token do handshake
+      const token = client.handshake.auth?.token;
       
-      // Se não tiver userId, tentar decodificar o token
-      if (!userId && client.handshake.auth?.token) {
-        try {
-          const payload = this.jwtService.verify(client.handshake.auth.token, {
-            secret: this.configService.get('JWT_SECRET'),
-          });
-          userId = payload.sub;
-        } catch (error) {
-          console.error('Token inválido:', error);
-          client.disconnect();
-          return;
-        }
-      }
-
-      if (userId) {
-        this.connectedUsers.set(client.id, userId);
-        
-        // Atualizar status online no banco
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: { 
-            isOnline: true,
-            lastSeen: new Date(),
-          },
-        });
-
-        // Notificar que o usuário está online
-        client.broadcast.emit('user-online', { userId });
-      } else {
-        console.warn('Usuário não autenticado, desconectando...');
+      if (!token) {
+        console.warn('Token não fornecido, desconectando...');
         client.disconnect();
+        return;
       }
+
+      // Validar e decodificar token
+      let payload: any;
+      try {
+        payload = this.jwtService.verify(token, {
+          secret: this.configService.get('JWT_SECRET'),
+        });
+      } catch (error) {
+        console.error('Token inválido:', error);
+        client.disconnect();
+        return;
+      }
+
+      const userId = payload.sub;
+      const empresaId = payload.empresaId;
+      const role = payload.role;
+
+      if (!userId || !empresaId) {
+        console.warn('Token incompleto, desconectando...');
+        client.disconnect();
+        return;
+      }
+
+      // Verificar se o usuário existe e está ativo
+      const usuario = await this.prisma.usuario.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          empresaId: true,
+          role: true,
+          ativo: true,
+        },
+      });
+
+      if (!usuario || !usuario.ativo) {
+        console.warn('Usuário não encontrado ou inativo, desconectando...');
+        client.disconnect();
+        return;
+      }
+
+      // Validar empresaId
+      if (usuario.empresaId !== empresaId) {
+        console.warn('EmpresaId não corresponde, desconectando...');
+        client.disconnect();
+        return;
+      }
+
+      // Armazenar informações do usuário
+      this.connectedUsers.set(client.id, {
+        userId,
+        empresaId,
+        role,
+      });
+
+      // Atualizar último login
+      await this.prisma.usuario.update({
+        where: { id: userId },
+        data: { 
+          ultimoLogin: new Date(),
+        },
+      });
+
+      // Notificar que o usuário está online (apenas para usuários da mesma empresa)
+      client.broadcast.emit('user-online', { userId, empresaId });
+      
+      console.log(`Usuário ${userId} conectado na empresa ${empresaId}`);
     } catch (error) {
       console.error('Erro ao processar conexão:', error);
       client.disconnect();
@@ -81,37 +127,102 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleDisconnect(client: Socket) {
     console.log(`Cliente desconectado: ${client.id}`);
-    const userId = this.connectedUsers.get(client.id);
+    const userInfo = this.connectedUsers.get(client.id);
     
-    if (userId) {
+    if (userInfo) {
       this.connectedUsers.delete(client.id);
       
       // Verificar se o usuário ainda tem outras conexões ativas
-      const hasOtherConnections = Array.from(this.connectedUsers.values()).includes(userId);
+      const hasOtherConnections = Array.from(this.connectedUsers.values()).some(
+        (u) => u.userId === userInfo.userId,
+      );
       
+      // Notificar que o usuário está offline (apenas se não houver outras conexões)
       if (!hasOtherConnections) {
-        // Atualizar status offline no banco apenas se não houver outras conexões
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: { 
-            isOnline: false,
-            lastSeen: new Date(),
-          },
+        client.broadcast.emit('user-offline', { 
+          userId: userInfo.userId,
+          empresaId: userInfo.empresaId,
         });
       }
+    }
+  }
 
-      // Notificar que o usuário está offline
-      client.broadcast.emit('user-offline', { userId });
+  private async validateConversaAccess(
+    conversaId: string,
+    empresaId: string,
+    userId: string,
+  ): Promise<boolean> {
+    try {
+      const conversa = await this.prisma.conversa.findUnique({
+        where: { id: conversaId },
+        select: { empresaId: true, clienteId: true, agenteId: true },
+      });
+
+      if (!conversa) {
+        return false;
+      }
+
+      // Validar empresaId
+      if (conversa.empresaId !== empresaId) {
+        return false;
+      }
+
+      // Buscar usuário para validar acesso
+      const usuario = await this.prisma.usuario.findUnique({
+        where: { id: userId },
+        select: { role: true, email: true },
+      });
+
+      if (!usuario) {
+        return false;
+      }
+
+      // Agente/admin pode acessar qualquer conversa da empresa
+      if (usuario.role === 'AGENTE' || usuario.role === 'ADMIN' || usuario.role === 'SUPER_ADMIN') {
+        return true;
+      }
+
+      // Cliente só pode acessar suas próprias conversas
+      const cliente = await this.prisma.cliente.findFirst({
+        where: {
+          email: usuario.email,
+          empresaId,
+        },
+      });
+
+      return cliente ? conversa.clienteId === cliente.id : false;
+    } catch (error) {
+      console.error('Erro ao validar acesso à conversa:', error);
+      return false;
     }
   }
 
   @SubscribeMessage('join-chat')
-  handleJoinChat(
+  async handleJoinChat(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { chatId: string },
   ) {
-    client.join(`chat_${data.chatId}`);
-    console.log(`Cliente ${client.id} entrou no chat ${data.chatId}`);
+    const userInfo = this.connectedUsers.get(client.id);
+    
+    if (!userInfo) {
+      client.emit('error', { message: 'Usuário não autenticado' });
+      return;
+    }
+
+    // Validar acesso à conversa
+    const hasAccess = await this.validateConversaAccess(
+      data.chatId,
+      userInfo.empresaId,
+      userInfo.userId,
+    );
+
+    if (!hasAccess) {
+      client.emit('error', { message: 'Acesso negado a esta conversa' });
+      return;
+    }
+
+    client.join(`conversa_${data.chatId}`);
+    console.log(`Cliente ${client.id} entrou na conversa ${data.chatId}`);
   }
 
   @SubscribeMessage('leave-chat')
@@ -119,88 +230,160 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { chatId: string },
   ) {
-    client.leave(`chat_${data.chatId}`);
-    console.log(`Cliente ${client.id} saiu do chat ${data.chatId}`);
+    client.leave(`conversa_${data.chatId}`);
+    console.log(`Cliente ${client.id} saiu da conversa ${data.chatId}`);
   }
 
   @SubscribeMessage('send-message')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: CreateMessageDto & { userId: string },
+    @MessageBody() data: CreateMessageDto,
   ) {
+    const userInfo = this.connectedUsers.get(client.id);
+    
+    if (!userInfo) {
+      client.emit('error', { message: 'Usuário não autenticado' });
+      return;
+    }
+
     try {
-      const message = await this.messagesService.create(data.userId, {
-        chatId: data.chatId,
-        content: data.content,
-        type: data.type,
-        fileUrl: data.fileUrl,
-        fileSize: data.fileSize,
-        mimeType: data.mimeType,
-        replyToId: data.replyToId,
-      });
+      // Validar acesso à conversa
+      const hasAccess = await this.validateConversaAccess(
+        data.chatId,
+        userInfo.empresaId,
+        userInfo.userId,
+      );
 
-      // Enviar mensagem para todos os clientes no chat
-      this.server.to(`chat_${data.chatId}`).emit('message', message);
+      if (!hasAccess) {
+        client.emit('error', { message: 'Acesso negado a esta conversa' });
+        return;
+      }
 
-      // Notificar sobre nova mensagem (para atualizar lista de chats)
-      this.server.emit('new-message', {
-        chatId: data.chatId,
+      const message = await this.messagesService.create(
+        userInfo.userId,
+        userInfo.empresaId,
+        {
+          chatId: data.chatId,
+          content: data.content,
+          type: data.type,
+          fileUrl: data.fileUrl,
+          fileSize: data.fileSize,
+          mimeType: data.mimeType,
+          replyToId: data.replyToId,
+        },
+      );
+
+      // Enviar mensagem para todos os clientes na conversa
+      this.server.to(`conversa_${data.chatId}`).emit('message', message);
+
+      // Notificar sobre nova mensagem (apenas para usuários da mesma empresa)
+      this.server.to(`empresa_${userInfo.empresaId}`).emit('new-message', {
+        conversaId: data.chatId,
         message,
       });
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
-      client.emit('error', { message: 'Erro ao enviar mensagem' });
+      client.emit('error', { 
+        message: error instanceof Error ? error.message : 'Erro ao enviar mensagem' 
+      });
     }
   }
 
   @SubscribeMessage('typing')
-  handleTyping(
+  async handleTyping(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { chatId: string; userId: string },
+    @MessageBody() data: { chatId: string },
   ) {
-    client.to(`chat_${data.chatId}`).emit('typing', {
-      userId: data.userId,
-      chatId: data.chatId,
+    const userInfo = this.connectedUsers.get(client.id);
+    
+    if (!userInfo) {
+      return;
+    }
+
+    // Validar acesso à conversa
+    const hasAccess = await this.validateConversaAccess(
+      data.chatId,
+      userInfo.empresaId,
+      userInfo.userId,
+    );
+
+    if (!hasAccess) {
+      return;
+    }
+
+    client.to(`conversa_${data.chatId}`).emit('typing', {
+      userId: userInfo.userId,
+      conversaId: data.chatId,
     });
   }
 
   @SubscribeMessage('stop-typing')
-  handleStopTyping(
+  async handleStopTyping(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { chatId: string; userId: string },
+    @MessageBody() data: { chatId: string },
   ) {
-    client.to(`chat_${data.chatId}`).emit('stop-typing', {
-      userId: data.userId,
-      chatId: data.chatId,
+    const userInfo = this.connectedUsers.get(client.id);
+    
+    if (!userInfo) {
+      return;
+    }
+
+    // Validar acesso à conversa
+    const hasAccess = await this.validateConversaAccess(
+      data.chatId,
+      userInfo.empresaId,
+      userInfo.userId,
+    );
+
+    if (!hasAccess) {
+      return;
+    }
+
+    client.to(`conversa_${data.chatId}`).emit('stop-typing', {
+      userId: userInfo.userId,
+      conversaId: data.chatId,
     });
   }
 
   @SubscribeMessage('message-read')
   async handleMessageRead(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { messageId: string; userId: string },
+    @MessageBody() data: { messageId: string },
   ) {
+    const userInfo = this.connectedUsers.get(client.id);
+    
+    if (!userInfo) {
+      client.emit('error', { message: 'Usuário não autenticado' });
+      return;
+    }
+
     try {
-      await this.messagesService.markAsRead(data.messageId, data.userId);
+      await this.messagesService.markAsRead(
+        data.messageId,
+        userInfo.userId,
+        userInfo.empresaId,
+      );
 
       // Notificar outros clientes que a mensagem foi lida
       client.broadcast.emit('message-read', {
         messageId: data.messageId,
-        userId: data.userId,
+        userId: userInfo.userId,
       });
     } catch (error) {
       console.error('Erro ao marcar mensagem como lida:', error);
-      client.emit('error', { message: 'Erro ao marcar mensagem como lida' });
+      client.emit('error', { 
+        message: error instanceof Error ? error.message : 'Erro ao marcar mensagem como lida' 
+      });
     }
   }
 
-  // Método para notificar sobre mudanças nos chats
-  notifyChatUpdate(chat: any) {
-    this.server.emit('chat-updated', chat);
+  // Método para notificar sobre mudanças nas conversas
+  notifyConversaUpdate(conversa: any, empresaId: string) {
+    this.server.to(`empresa_${empresaId}`).emit('conversa-updated', conversa);
   }
 
-  // Método para notificar sobre novos chats
-  notifyNewChat(chat: any) {
-    this.server.emit('new-chat', chat);
+  // Método para notificar sobre novas conversas
+  notifyNewConversa(conversa: any, empresaId: string) {
+    this.server.to(`empresa_${empresaId}`).emit('new-conversa', conversa);
   }
 }
