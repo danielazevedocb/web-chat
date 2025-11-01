@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 
@@ -6,52 +6,83 @@ import { CreateMessageDto } from './dto/create-message.dto';
 export class MessagesService {
   constructor(private prisma: PrismaService) {}
 
-  async create(userId: string, createMessageDto: CreateMessageDto) {
-    // Verificar se o chat existe e o usuário é participante
-    const chat = await this.prisma.chat.findUnique({
+  async create(userId: string, empresaId: string, createMessageDto: CreateMessageDto) {
+    // Verificar se a conversa existe e validar empresaId
+    const conversa = await this.prisma.conversa.findUnique({
       where: { id: createMessageDto.chatId },
       include: {
-        participants: {
-          where: { userId },
-        },
+        cliente: true,
+        agente: true,
       },
     });
 
-    if (!chat) {
-      throw new NotFoundException('Chat não encontrado');
+    if (!conversa) {
+      throw new NotFoundException('Conversa não encontrada');
     }
 
-    if (chat.participants.length === 0) {
-      throw new NotFoundException('Você não é participante deste chat');
+    // Validar empresaId
+    if (conversa.empresaId !== empresaId) {
+      throw new ForbiddenException('Acesso negado: conversa não pertence à sua empresa');
+    }
+
+    // Buscar usuário para determinar remetente
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+    });
+
+    if (!usuario) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Determinar remetente: se for agente/admin, remetente é 'agente', senão é 'cliente'
+    const remetente = usuario.role === 'AGENTE' || usuario.role === 'ADMIN' || usuario.role === 'SUPER_ADMIN' 
+      ? 'agente' 
+      : 'cliente';
+
+    // Validar acesso: agente pode enviar em qualquer conversa da empresa
+    // Cliente só pode enviar em suas próprias conversas
+    if (remetente === 'cliente') {
+      const cliente = await this.prisma.cliente.findFirst({
+        where: {
+          email: usuario.email,
+          empresaId,
+        },
+      });
+
+      if (!cliente || conversa.clienteId !== cliente.id) {
+        throw new ForbiddenException('Acesso negado: você não tem permissão para enviar mensagens nesta conversa');
+      }
     }
 
     // Criar mensagem
-    const message = await this.prisma.message.create({
+    const mensagem = await this.prisma.mensagem.create({
       data: {
-        chatId: createMessageDto.chatId,
-        senderId: userId,
-        content: createMessageDto.content,
-        type: createMessageDto.type,
-        fileUrl: createMessageDto.fileUrl,
-        fileSize: createMessageDto.fileSize,
-        mimeType: createMessageDto.mimeType,
-        replyToId: createMessageDto.replyToId,
+        conversaId: createMessageDto.chatId,
+        conteudo: createMessageDto.content,
+        tipo: createMessageDto.type,
+        remetente,
+        agenteId: remetente === 'agente' ? userId : null,
+        arquivoUrl: createMessageDto.fileUrl,
+        arquivoTipo: createMessageDto.mimeType,
+        isLida: false,
       },
       include: {
-        sender: {
+        agente: remetente === 'agente' ? {
           select: {
             id: true,
-            name: true,
+            nome: true,
             email: true,
             avatar: true,
           },
-        },
-        replyTo: {
-          include: {
-            sender: {
+        } : false,
+        conversa: {
+          select: {
+            id: true,
+            cliente: {
               select: {
                 id: true,
-                name: true,
+                nome: true,
+                email: true,
                 avatar: true,
               },
             },
@@ -60,163 +91,206 @@ export class MessagesService {
       },
     });
 
-    // Atualizar timestamp do chat
-    await this.prisma.chat.update({
+    // Atualizar timestamp da conversa
+    await this.prisma.conversa.update({
       where: { id: createMessageDto.chatId },
       data: { updatedAt: new Date() },
     });
 
-    return message;
+    // Formatar resposta
+    return {
+      ...mensagem,
+      sender: remetente === 'agente' ? mensagem.agente : {
+        id: conversa.cliente.id,
+        nome: conversa.cliente.nome,
+        email: conversa.cliente.email,
+        avatar: conversa.cliente.avatar,
+      },
+    };
   }
 
-  async findAll(chatId: string, userId: string, cursor?: string, limit = 50) {
-    // Verificar se o usuário é participante
-    const chat = await this.prisma.chat.findUnique({
-      where: { id: chatId },
-      include: {
-        participants: {
-          where: { userId },
-        },
-      },
+  async findAll(conversaId: string, userId: string, empresaId: string, cursor?: string, limit = 50) {
+    // Verificar se a conversa existe e validar empresaId
+    const conversa = await this.prisma.conversa.findUnique({
+      where: { id: conversaId },
     });
 
-    if (!chat || chat.participants.length === 0) {
-      throw new NotFoundException('Chat não encontrado ou acesso negado');
+    if (!conversa) {
+      throw new NotFoundException('Conversa não encontrada');
     }
 
-    const where: any = { chatId };
+    // Validar empresaId
+    if (conversa.empresaId !== empresaId) {
+      throw new ForbiddenException('Acesso negado: conversa não pertence à sua empresa');
+    }
+
+    // Buscar usuário para validar acesso
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+    });
+
+    if (!usuario) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Validar acesso: agente/admin pode ver qualquer conversa da empresa
+    // Cliente só pode ver suas próprias conversas
+    if (usuario.role !== 'AGENTE' && usuario.role !== 'ADMIN' && usuario.role !== 'SUPER_ADMIN') {
+      const cliente = await this.prisma.cliente.findFirst({
+        where: {
+          email: usuario.email,
+          empresaId,
+        },
+      });
+
+      if (!cliente || conversa.clienteId !== cliente.id) {
+        throw new ForbiddenException('Acesso negado');
+      }
+    }
+
+    const where: any = { conversaId };
     if (cursor) {
       where.id = { lt: cursor };
     }
 
-    const messages = await this.prisma.message.findMany({
+    const mensagens = await this.prisma.mensagem.findMany({
       where,
       take: limit,
       orderBy: { createdAt: 'desc' },
       include: {
-        sender: {
+        agente: {
           select: {
             id: true,
-            name: true,
+            nome: true,
             email: true,
             avatar: true,
           },
         },
-        replyTo: {
-          include: {
-            sender: {
+        conversa: {
+          select: {
+            cliente: {
               select: {
                 id: true,
-                name: true,
+                nome: true,
+                email: true,
                 avatar: true,
               },
             },
           },
         },
-        reads: {
-          where: { userId },
-        },
       },
+    });
+
+    // Formatar mensagens para incluir informações do remetente
+    const mensagensFormatadas = mensagens.map((msg) => {
+      const sender = msg.remetente === 'agente' && msg.agente
+        ? {
+            id: msg.agente.id,
+            nome: msg.agente.nome,
+            email: msg.agente.email,
+            avatar: msg.agente.avatar,
+          }
+        : {
+            id: msg.conversa.cliente.id,
+            nome: msg.conversa.cliente.nome,
+            email: msg.conversa.cliente.email,
+            avatar: msg.conversa.cliente.avatar,
+          };
+
+      return {
+        ...msg,
+        sender,
+      };
     });
 
     // Inverter para ordem cronológica (mais antiga primeiro)
-    return messages.reverse();
+    return mensagensFormatadas.reverse();
   }
 
-  async markAsRead(messageId: string, userId: string) {
-    const message = await this.prisma.message.findUnique({
+  async markAsRead(messageId: string, userId: string, empresaId: string) {
+    const mensagem = await this.prisma.mensagem.findUnique({
       where: { id: messageId },
       include: {
-        chat: {
-          include: {
-            participants: {
-              where: { userId },
-            },
-          },
-        },
+        conversa: true,
       },
     });
 
-    if (!message || message.chat.participants.length === 0) {
-      throw new NotFoundException('Mensagem não encontrada ou acesso negado');
+    if (!mensagem) {
+      throw new NotFoundException('Mensagem não encontrada');
     }
 
-    // Verificar se já foi marcada como lida
-    const existingRead = await this.prisma.messageRead.findUnique({
-      where: {
-        messageId_userId: {
-          messageId,
-          userId,
-        },
-      },
-    });
-
-    if (existingRead) {
-      return existingRead;
+    // Validar empresaId
+    if (mensagem.conversa.empresaId !== empresaId) {
+      throw new ForbiddenException('Acesso negado');
     }
 
-    return this.prisma.messageRead.create({
-      data: {
-        messageId,
-        userId,
-      },
+    // Marcar como lida
+    return this.prisma.mensagem.update({
+      where: { id: messageId },
+      data: { isLida: true },
     });
   }
 
-  async markChatAsRead(chatId: string, userId: string) {
-    // Verificar se o usuário é participante
-    const chat = await this.prisma.chat.findUnique({
-      where: { id: chatId },
-      include: {
-        participants: {
-          where: { userId },
-        },
-        messages: {
-          where: {
-            senderId: { not: userId },
-            reads: {
-              none: {
-                userId,
-              },
-            },
-          },
-          select: {
-            id: true,
-          },
-        },
+  async markChatAsRead(conversaId: string, userId: string, empresaId: string) {
+    // Verificar se a conversa existe e validar empresaId
+    const conversa = await this.prisma.conversa.findUnique({
+      where: { id: conversaId },
+    });
+
+    if (!conversa) {
+      throw new NotFoundException('Conversa não encontrada');
+    }
+
+    // Validar empresaId
+    if (conversa.empresaId !== empresaId) {
+      throw new ForbiddenException('Acesso negado');
+    }
+
+    // Buscar usuário para determinar quais mensagens marcar como lidas
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+    });
+
+    if (!usuario) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Determinar quais mensagens marcar como lidas
+    // Se for agente, marca mensagens do cliente como lidas
+    // Se for cliente, marca mensagens do agente como lidas
+    const remetenteFiltro = usuario.role === 'AGENTE' || usuario.role === 'ADMIN' || usuario.role === 'SUPER_ADMIN'
+      ? 'cliente'
+      : 'agente';
+
+    // Buscar mensagens não lidas do outro remetente
+    const mensagensNaoLidas = await this.prisma.mensagem.findMany({
+      where: {
+        conversaId,
+        remetente: remetenteFiltro,
+        isLida: false,
+      },
+      select: {
+        id: true,
       },
     });
 
-    if (!chat || chat.participants.length === 0) {
-      throw new NotFoundException('Chat não encontrado ou acesso negado');
-    }
-
-    // Marcar todas as mensagens não lidas como lidas
-    const messageIds = chat.messages.map((m) => m.id);
-    if (messageIds.length === 0) {
+    if (mensagensNaoLidas.length === 0) {
       return { count: 0 };
     }
 
-    await this.prisma.messageRead.createMany({
-      data: messageIds.map((messageId) => ({
-        messageId,
-        userId,
-      })),
-      skipDuplicates: true,
-    });
-
-    // Atualizar lastReadAt do participante
-    await this.prisma.chatParticipant.updateMany({
+    // Marcar todas como lidas
+    await this.prisma.mensagem.updateMany({
       where: {
-        chatId,
-        userId,
+        id: {
+          in: mensagensNaoLidas.map((m) => m.id),
+        },
       },
       data: {
-        lastReadAt: new Date(),
+        isLida: true,
       },
     });
 
-    return { count: messageIds.length };
+    return { count: mensagensNaoLidas.length };
   }
 }
 

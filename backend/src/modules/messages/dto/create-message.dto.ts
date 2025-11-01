@@ -7,7 +7,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { MessageType } from '@prisma/client';
+import { TipoMensagem } from '@prisma/client';
 
 export class CreateMessageDto {
   @IsString()
@@ -17,8 +17,8 @@ export class CreateMessageDto {
   @IsString()
   content?: string;
 
-  @IsEnum(MessageType)
-  type: MessageType;
+  @IsEnum(TipoMensagem)
+  type: TipoMensagem;
 
   @IsOptional()
   @IsUrl()

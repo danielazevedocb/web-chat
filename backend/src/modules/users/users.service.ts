@@ -13,90 +13,113 @@ export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async findOne(id: string) {
-    const user = await this.prisma.user.findUnique({
+    const usuario = await this.prisma.usuario.findUnique({
       where: { id },
       select: {
         id: true,
-        name: true,
+        nome: true,
         email: true,
+        telefone: true,
         avatar: true,
-        bio: true,
-        isOnline: true,
-        lastSeen: true,
+        role: true,
+        empresaId: true,
+        ativo: true,
+        ultimoLogin: true,
         createdAt: true,
         updatedAt: true,
+        empresa: {
+          select: {
+            id: true,
+            nome: true,
+            slug: true,
+          },
+        },
       },
     });
 
-    if (!user) {
+    if (!usuario) {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    return user;
+    return usuario;
   }
 
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({
+    return this.prisma.usuario.findUnique({
       where: { email },
     });
   }
 
-  async searchUsers(search: string, excludeUserId?: string) {
-    const users = await this.prisma.user.findMany({
-      where: {
-        AND: [
-          {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-            ],
-          },
-          excludeUserId ? { id: { not: excludeUserId } } : {},
-        ],
-      },
+  async searchUsers(search: string, empresaId?: string, excludeUserId?: string) {
+    const where: any = {
+      AND: [
+        {
+          OR: [
+            { nome: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+          ],
+        },
+        excludeUserId ? { id: { not: excludeUserId } } : {},
+        empresaId ? { empresaId } : {},
+        { ativo: true },
+      ],
+    };
+
+    const usuarios = await this.prisma.usuario.findMany({
+      where,
       select: {
         id: true,
-        name: true,
+        nome: true,
         email: true,
+        telefone: true,
         avatar: true,
-        isOnline: true,
-        lastSeen: true,
+        role: true,
+        ultimoLogin: true,
       },
       take: 20,
     });
 
-    return users;
+    return usuarios;
   }
 
   async updateProfile(userId: string, updateProfileDto: UpdateProfileDto) {
-    const user = await this.findOne(userId);
+    const usuario = await this.findOne(userId);
 
     // Verificar se o email já está em uso por outro usuário
-    if (updateProfileDto.email && updateProfileDto.email !== user.email) {
+    if (updateProfileDto.email && updateProfileDto.email !== usuario.email) {
       const existingUser = await this.findByEmail(updateProfileDto.email);
       if (existingUser) {
         throw new BadRequestException('Email já está em uso');
       }
     }
 
-    const updatedUser = await this.prisma.user.update({
+    const updatedUser = await this.prisma.usuario.update({
       where: { id: userId },
       data: {
-        name: updateProfileDto.name,
-        email: updateProfileDto.email,
-        avatar: updateProfileDto.avatar,
-        bio: updateProfileDto.bio,
+        nome: updateProfileDto.name || usuario.nome,
+        email: updateProfileDto.email || usuario.email,
+        telefone: updateProfileDto.telefone || usuario.telefone,
+        avatar: updateProfileDto.avatar || usuario.avatar,
       },
       select: {
         id: true,
-        name: true,
+        nome: true,
         email: true,
+        telefone: true,
         avatar: true,
-        bio: true,
-        isOnline: true,
-        lastSeen: true,
+        role: true,
+        empresaId: true,
+        ativo: true,
+        ultimoLogin: true,
         createdAt: true,
         updatedAt: true,
+        empresa: {
+          select: {
+            id: true,
+            nome: true,
+            slug: true,
+          },
+        },
       },
     });
 
@@ -104,18 +127,18 @@ export class UsersService {
   }
 
   async changePassword(userId: string, changePasswordDto: ChangePasswordDto) {
-    const user = await this.prisma.user.findUnique({
+    const usuario = await this.prisma.usuario.findUnique({
       where: { id: userId },
-      select: { id: true, password: true },
+      select: { id: true, senha: true },
     });
 
-    if (!user) {
+    if (!usuario) {
       throw new NotFoundException('Usuário não encontrado');
     }
 
     const isPasswordValid = await bcrypt.compare(
       changePasswordDto.currentPassword,
-      user.password,
+      usuario.senha,
     );
 
     if (!isPasswordValid) {
@@ -124,9 +147,9 @@ export class UsersService {
 
     const newPasswordHash = await bcrypt.hash(changePasswordDto.newPassword, 10);
 
-    await this.prisma.user.update({
+    await this.prisma.usuario.update({
       where: { id: userId },
-      data: { password: newPasswordHash },
+      data: { senha: newPasswordHash },
     });
 
     return { message: 'Senha alterada com sucesso' };

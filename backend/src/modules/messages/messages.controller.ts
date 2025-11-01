@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
   Request,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MessagesService } from './messages.service';
@@ -24,7 +25,11 @@ export class MessagesController {
     @Body() createMessageDto: CreateMessageDto,
     @Request() req: any,
   ) {
-    return this.messagesService.create(req.user.id, {
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.messagesService.create(req.user.id, empresaId, {
       ...createMessageDto,
       chatId,
     });
@@ -37,9 +42,14 @@ export class MessagesController {
     @Query('limit') limit?: string,
     @Request() req: any,
   ) {
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
     return this.messagesService.findAll(
       chatId,
       req.user.id,
+      empresaId,
       cursor,
       limit ? parseInt(limit) : 50,
     );
@@ -50,7 +60,11 @@ export class MessagesController {
     @Param('messageId') messageId: string,
     @Request() req: any,
   ) {
-    return this.messagesService.markAsRead(messageId, req.user.id);
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.messagesService.markAsRead(messageId, req.user.id, empresaId);
   }
 
   @Put('read')
@@ -58,7 +72,11 @@ export class MessagesController {
     @Param('chatId') chatId: string,
     @Request() req: any,
   ) {
-    return this.messagesService.markChatAsRead(chatId, req.user.id);
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.messagesService.markChatAsRead(chatId, req.user.id, empresaId);
   }
 }
 

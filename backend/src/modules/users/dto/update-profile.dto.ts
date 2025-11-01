@@ -17,11 +17,11 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsString()
-  avatar?: string;
+  telefone?: string;
 
   @IsOptional()
   @IsString()
-  bio?: string;
+  avatar?: string;
 }
 
 export class ChangePasswordDto {

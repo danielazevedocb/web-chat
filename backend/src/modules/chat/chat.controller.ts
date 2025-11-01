@@ -7,6 +7,7 @@ import {
   Query,
   Request,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ChatService } from './chat.service';
@@ -19,21 +20,37 @@ export class ChatController {
 
   @Get()
   findAll(@Query('search') search?: string, @Request() req: any) {
-    return this.chatService.findAll(req.user.id, search);
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.chatService.findAll(req.user.id, empresaId, search);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {
-    return this.chatService.findOne(id, req.user.id);
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.chatService.findOne(id, req.user.id, empresaId);
   }
 
   @Post()
   create(@Body() createChatDto: CreateChatDto, @Request() req: any) {
-    return this.chatService.create(req.user.id, createChatDto);
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.chatService.create(req.user.id, createChatDto, empresaId);
   }
 
   @Get(':id/participants')
   getParticipants(@Param('id') id: string, @Request() req: any) {
-    return this.chatService.getParticipants(id, req.user.id);
+    const empresaId = req.user.empresaId;
+    if (!empresaId) {
+      throw new BadRequestException('EmpresaId não encontrado no token');
+    }
+    return this.chatService.getParticipants(id, req.user.id, empresaId);
   }
 }
