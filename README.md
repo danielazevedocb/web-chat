@@ -20,7 +20,7 @@ Sistema completo de atendimento ao cliente com suporte multi-empresa, integraç�
 - **Framework**: NestJS
 - **Linguagem**: TypeScript
 - **ORM**: Prisma
-- **Banco de Dados**: MongoDB Atlas
+- **Banco de Dados**: PostgreSQL
 - **Real-time**: Socket.io
 - **IA**: OpenAI API
 - **Storage**: Cloudinary
@@ -41,22 +41,49 @@ Sistema completo de atendimento ao cliente com suporte multi-empresa, integraç�
 
 ## 📋 Pré-requisitos
 
-- Node.js 18+
-- MongoDB Atlas (conta gratuita disponível)
-- Conta OpenAI (para API)
-- Conta Cloudinary ou AWS S3 (para upload de arquivos)
-- Docker e Docker Compose (opcional)
+- Docker e Docker Compose (recomendado)
+- Node.js 18+ (se rodar localmente)
+- PostgreSQL (se rodar localmente)
+- Redis (se rodar localmente)
+- Conta OpenAI (opcional, para API)
+- Conta Cloudinary (opcional, para upload de arquivos)
 
 ## 🚀 Instalação Rápida
 
-### 1. Clone o repositório
+### Opção 1: Executar com Docker (Recomendado)
+
+```bash
+# 1. Clone o repositório
+git clone <url-do-repositorio>
+cd web-chat
+
+# 2. Configurar variáveis de ambiente (opcional)
+# Copie backend/.env.example para backend/.env e configure conforme necessário
+
+# 3. Iniciar todos os serviços
+docker-compose up -d
+
+# 4. Configurar banco de dados
+docker-compose exec backend npm run prisma:generate
+docker-compose exec backend npm run prisma:push
+docker-compose exec backend npm run prisma:seed
+
+# 5. Acessar a aplicação
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:3001
+# Swagger: http://localhost:3001/api/docs
+```
+
+### Opção 2: Executar Localmente
+
+#### 1. Clone o repositório
 
 ```bash
 git clone <url-do-repositorio>
 cd web-chat
 ```
 
-### 2. Configurar o Backend
+#### 2. Configurar o Backend
 
 ```bash
 cd backend
@@ -66,36 +93,36 @@ npm install
 cp .env.example .env
 
 # Editar o .env com suas credenciais
-# MongoDB Atlas, OpenAI API Key, Cloudinary, etc.
+# PostgreSQL, OpenAI API Key, Cloudinary, etc.
 ```
 
-### 3. Configurar o Banco de Dados
+#### 3. Configurar o Banco de Dados
 
 ```bash
 # Gerar o cliente Prisma
-npx prisma generate
+npm run prisma:generate
 
 # Executar migrations
-npx prisma db push
+npm run prisma:push
 
 # Popular banco com dados iniciais
-npm run seed
+npm run prisma:seed
 ```
 
-### 4. Configurar o Frontend
+#### 4. Configurar o Frontend
 
 ```bash
-cd frontend
+cd ../frontend
 npm install
 
 # Copiar arquivo de ambiente
-cp .env.example .env
+cp .env.example .env.local
 
-# Editar o .env com a URL do backend
+# Editar o .env.local com a URL do backend
 NEXT_PUBLIC_API_URL=http://localhost:3001
 ```
 
-### 5. Executar o Sistema
+#### 5. Executar o Sistema
 
 **Terminal 1 - Backend:**
 ```bash
@@ -109,7 +136,7 @@ cd frontend
 npm run dev
 ```
 
-**Terminal 3 - Redis (opcional):**
+**Terminal 3 - Redis (opcional, via Docker):**
 ```bash
 docker-compose up redis
 ```
@@ -118,23 +145,26 @@ docker-compose up redis
 
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:3001
-- **API Documentation**: http://localhost:3001/api
+- **API Documentation (Swagger)**: http://localhost:3001/api/docs
+- **Health Check**: http://localhost:3001/api/health
 
 ## 👤 Credenciais Padrão
 
 Após executar o seed:
 
-- **Admin**
-  - Email: `admin@webchat.com`
+- **Super Administrador**
+  - Email: `admin@sistema.com`
   - Senha: `admin123`
 
-- **Gerente**
-  - Email: `gerente@webchat.com`
-  - Senha: `gerente123`
+- **Administrador da Empresa**
+  - Email: `admin@empresaexemplo.com`
+  - Senha: `admin123`
 
-- **Agente**
-  - Email: `agente@webchat.com`
-  - Senha: `agente123`
+- **Agentes**
+  - Email: `agente1@empresaexemplo.com`
+  - Senha: `admin123`
+  - Email: `agente2@empresaexemplo.com`
+  - Senha: `admin123`
 
 ## 📖 Documentação Adicional
 
@@ -174,7 +204,19 @@ web-chat/
 npm run start:dev      # Desenvolvimento
 npm run build          # Build para produção
 npm run start:prod     # Executar produção
-npm run seed           # Popular banco de dados
+npm run prisma:generate # Gerar Prisma Client
+npm run prisma:push    # Aplicar schema ao banco
+npm run prisma:seed    # Popular banco de dados
+npm run prisma:studio  # Abrir Prisma Studio
+```
+
+### Docker
+```bash
+docker-compose up -d              # Iniciar todos os serviços
+docker-compose down               # Parar todos os serviços
+docker-compose logs -f backend    # Ver logs do backend
+docker-compose logs -f frontend   # Ver logs do frontend
+docker-compose restart backend    # Reiniciar backend
 ```
 
 ### Frontend

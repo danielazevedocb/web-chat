@@ -3,7 +3,7 @@
 const { execSync } = require('child_process');
 const path = require('path');
 
-console.log('🚀 Configurando banco de dados MongoDB...\n');
+console.log('🚀 Configurando banco de dados PostgreSQL (web-chat)...\n');
 
 try {
   // Gerar cliente Prisma
@@ -18,7 +18,7 @@ try {
   console.log('🌱 Populando banco com dados iniciais...');
   execSync('npm run prisma:seed', { stdio: 'inherit' });
 
-  console.log('\n✅ Banco de dados configurado com sucesso!');
+  console.log('\n✅ Banco de dados PostgreSQL (web-chat) configurado com sucesso!');
   console.log('🎉 Você pode agora executar o servidor com: npm run start:dev');
 } catch (error) {
   console.error('\n❌ Erro ao configurar banco de dados:', error.message);

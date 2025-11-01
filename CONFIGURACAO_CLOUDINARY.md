@@ -2,15 +2,17 @@
 
 ## ✅ Status: Configurado e Pronto para Uso
 
-### Credenciais Configuradas
+### Configuração
 
-As credenciais do Cloudinary foram adicionadas ao arquivo `.env`:
+Adicione as credenciais do Cloudinary no arquivo `.env` do backend:
 
 ```env
-CLOUDINARY_CLOUD_NAME="diej9yqwl"
-CLOUDINARY_API_KEY="144622184922334"
-CLOUDINARY_API_SECRET="Ykq76YyCE25TWgdO9k4k6jMSDZQ"
+CLOUDINARY_CLOUD_NAME="seu-cloud-name"
+CLOUDINARY_API_KEY="sua-api-key"
+CLOUDINARY_API_SECRET="seu-api-secret"
 ```
+
+**⚠️ IMPORTANTE**: Não commite credenciais reais no repositório! Use variáveis de ambiente.
 
 ## 🚀 Como Funciona Agora
 
@@ -176,9 +178,9 @@ find ./uploads -type f -mtime +30 -delete
 
 **Solução**: Verifique se as variáveis de ambiente estão no `.env`:
 ```env
-CLOUDINARY_CLOUD_NAME="diej9yqwl"
-CLOUDINARY_API_KEY="144622184922334"
-CLOUDINARY_API_SECRET="Ykq76YyCE25TWgdO9k4k6jMSDZQ"
+CLOUDINARY_CLOUD_NAME="seu-cloud-name"
+CLOUDINARY_API_KEY="sua-api-key"
+CLOUDINARY_API_SECRET="seu-api-secret"
 ```
 
 ### Erro: "Upload failed"
